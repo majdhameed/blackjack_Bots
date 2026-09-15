@@ -576,7 +576,7 @@ class TableRound:
             player_hand.mark_settled("loss")
             return "loss"
 
-        self.player.push(hand_index)
+        player.push(hand_index)
         player_hand.mark_settled("push")
 
         return "push"

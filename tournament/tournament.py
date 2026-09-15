@@ -50,7 +50,7 @@ class Tournament:
     def get_active_player_indices(self):
         indices = []
         for player_index, player in enumerate(self.players):
-            if player.bankroll >= 0:
+            if player.bankroll > 0:
                 indices.append(player_index)
 
         return indices
@@ -140,8 +140,8 @@ class Tournament:
 
             bet = bot.choose_bet(player, self.minimum_bet)
 
-        if isinstance(bet, bool) or not isinstance(bet, int):
-            raise TypeError("Bet must be an integer")
+            if isinstance(bet, bool) or not isinstance(bet, int):
+                raise TypeError("Bet must be an integer")
 
             self.current_table_round.place_bet(round_player_index, bet)
 
@@ -220,8 +220,69 @@ class Tournament:
                 raise ValueError("Unknown action")
 
 
+    def finish_current_round(self):
+        if self.current_table_round is None:
+            raise ValueError("The current round does not exist")
 
-            
+        table_round = self.current_table_round
+
+        if table_round.is_over:
+            outcomes = table_round.outcomes
+        else:
+            if table_round.get_current_player_index() is not None:
+                raise ValueError("The current round is not over yet")
+
+            table_round.play_dealer()
+
+            outcomes = table_round.settle_round()
+
+        self.round_history.append(table_round)
+
+        self.current_table_round = None
+
+        self.starting_player_index = (self.starting_player_index + 1) % len(self.players)
+
+        if self.tournament_should_end():
+            self.is_over = True
+
+        return outcomes
+
+    def play_one_round(self):
+        table_round = self.start_next_round()
+
+        if table_round is None:
+            return None
+
+        self.place_round_bets()
+
+        naturals_ended = self.begin_player_actions()
+
+        if not naturals_ended:
+            self.play_all_players()
+
+        outcomes = self.finish_current_round()
+
+        return outcomes
+
+    def get_rankings(self):
+        rankings = sorted(
+            [(player_index, player.bankroll) for player_index, player in enumerate(self.players)],
+            key=lambda x: x[1],
+            reverse=True,
+        )
+        return rankings
+
+    def play_tournament(self):
+        while not self.is_over:
+            outcomes = self.play_one_round()
+
+            if outcomes is None:
+                self.is_over = True
+                break
+
+
+        return self.get_rankings()
+
 
 
 
