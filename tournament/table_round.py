@@ -51,6 +51,9 @@ class TableRound:
 
         self.betting_order = betting_order
 
+        self.action_order = list(range(len(players)))
+        self.current_action_position = 0
+
         self.next_bettor_index = 0
 
         self.naturals_checked = False
@@ -65,6 +68,39 @@ class TableRound:
         if player_index < 0 or player_index >= len(self.players):
             raise IndexError("Player index out of range.")
         return self.players[player_index]
+    
+    def is_player_finished(self, player_index):
+        player = self.get_player(player_index)
+
+        for player_hand in player.hands:
+            if (
+                not player_hand.is_settled
+                and not player_hand.is_finished()
+            ):
+                return False
+
+        return True
+    
+    def get_current_player_index(self):
+        if self.current_action_position >= len(
+            self.action_order
+        ):
+            return None
+
+        return self.action_order[
+            self.current_action_position
+        ]
+
+    def advance_action_turn(self):
+        while self.current_action_position < len(
+            self.action_order
+        ):
+            player_index = self.get_current_player_index()
+
+            if not self.is_player_finished(player_index):
+                return
+
+            self.current_action_position += 1
 
     def _finish_unplayable_split_aces(self, player_index):
             player = self.get_player(player_index)
@@ -252,6 +288,8 @@ class TableRound:
             self.is_over = True
             return True
 
+        self.advance_action_turn()
+
         return False
 
 
@@ -276,6 +314,13 @@ class TableRound:
             return set()
 
         if player_hand.is_finished():
+            return set()
+
+        current_player_index = (
+            self.get_current_player_index()
+        )
+
+        if player_index != current_player_index:
             return set()
 
         cards = player_hand.hand.cards
@@ -361,6 +406,8 @@ class TableRound:
         card = self.shoe.deal_card()
         player.add_card(hand_index, card)
 
+        self.advance_action_turn()
+
         return card
 
 
@@ -377,6 +424,8 @@ class TableRound:
         player = self.get_player(player_index)
 
         player.stand(hand_index)
+        self.advance_action_turn()
+
 
 
     def player_double(self, player_index, hand_index, additional_bet):
@@ -396,6 +445,7 @@ class TableRound:
         card = self.shoe.deal_card()
         player.add_card(hand_index, card)
         player.finish_double(hand_index)
+        self.advance_action_turn()
 
         return card
 
@@ -421,6 +471,7 @@ class TableRound:
         player.add_card(hand_index + 1, second_card)
 
         self._finish_unplayable_split_aces(player_index)
+        self.advance_action_turn()
 
         return  first_card, second_card
 
@@ -437,5 +488,126 @@ class TableRound:
         player = self.get_player(player_index)
 
         player.surrender(hand_index)
+        self.advance_action_turn()
+
+    def has_playable_hand(self):
+        for player in self.players:
+            for player_hand in player.hands:
+                if (
+                    not player_hand.has_surrendered
+                    and not player_hand.hand.is_bust()
+                    and not player_hand.is_settled
+                ):
+                    return True
+
+        return False
+
+    def play_dealer(self):
+        if self.is_over:
+            raise ValueError("Round is already over")
+        if not self.naturals_checked:
+            raise ValueError("Naturals have not been checked")
+
+        if self.get_current_player_index() is not None:
+            raise ValueError("Players have not finished")
+
+        if self.dealer_turn_complete:
+            raise ValueError("Dealer has already played")
+
+        if not self.has_playable_hand():
+            self.dealer_turn_complete = True
+            return False
+
+        self.dealer.play(self.shoe)
+        self.dealer_turn_complete = True
+        return True
+
+    def settle_hand(self, player_index, hand_index):
+        if self.is_over:
+            raise ValueError("The round is already over")
+        
+        if not self.dealer_turn_complete:
+            raise ValueError(
+                "Dealer turn is not complete"
+            )
+
+        player = self.get_player(player_index)
+
+        player_hand = player.get_hand(hand_index)
+
+        if player_hand.is_settled:
+            raise ValueError(
+                "This hand has already been settled"
+            )
+
+        if not player_hand.is_finished():
+            raise ValueError(
+                "This hand is still active"
+            )
+
+        if player_hand.has_surrendered:
+            player_hand.mark_settled(
+                "surrender"
+            )
+            return "surrender"
+
+        if player_hand.hand.is_bust():
+            player_hand.mark_settled("loss")
+            return "loss"
+
+        player_total = (
+            player_hand.hand.get_total()
+        )
+        dealer_total = (
+            self.dealer.hand.get_total()
+        )
+
+        if self.dealer.hand.is_bust():
+            player.win(hand_index)
+            player_hand.mark_settled("win")
+            return "win"
+
+        if player_total > dealer_total:
+            player.win(hand_index)
+            player_hand.mark_settled("win")
+            return "win"
+
+        if player_total < dealer_total:
+            player_hand.mark_settled("loss")
+            return "loss"
+
+        self.player.push(hand_index)
+        player_hand.mark_settled("push")
+
+        return "push"
+
+    def settle_round(self):
+        if self.is_over:
+            raise ValueError("Round is already over")
+
+        if not self.dealer_turn_complete:
+            raise ValueError("Dealer turn is not complete")
+
+        for player_index, player in enumerate(self.players):
+            for hand_index in range(len(player.hands)):
+                player_hand = player.get_hand(hand_index)
+
+                if not player_hand.is_settled:
+                    self.settle_hand(
+                        player_index,
+                        hand_index,
+                    )
+
+        self.outcomes = [
+            [
+                player_hand.outcome
+                for player_hand in player.hands
+            ]
+            for player in self.players
+        ]
+
+        self.is_over = True
+        return self.outcomes
+
 
 
