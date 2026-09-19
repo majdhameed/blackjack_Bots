@@ -6,9 +6,10 @@ from blackjack.actions import Action
 from blackjack.cards import Shoe
 from blackjack.dealer import Dealer
 from blackjack.player import Player
+from blackjack.card_counter import CardCounter
 
 class TableRound:
-    def __init__(self, players, shoe, minimum_bet, starting_player, hit_soft_17, max_hands):
+    def __init__(self, players, shoe, minimum_bet, starting_player, hit_soft_17, max_hands, card_counter):
 
         if not isinstance(players, list):
             raise TypeError("Players must be provided as a list.") 
@@ -29,6 +30,8 @@ class TableRound:
             raise TypeError("Starting player must be an integer index.")
         if starting_player < 0 or starting_player > len(players):
             raise ValueError("Starting player must be a valid index for one of the players in the round.")
+        if not isinstance(card_counter, CardCounter):
+            raise ValueError("Card counter is not of type card cunter")
 
         if starting_player == 0:
             starting_player_index = random.randint(0, len(players) - 1)
@@ -63,6 +66,7 @@ class TableRound:
         self.is_over = False
 
         self.outcomes = [[] for _ in range(len(players))]
+        self.card_counter = card_counter
 
     def get_player(self, player_index):
         if not isinstance(player_index, int):
@@ -198,16 +202,20 @@ class TableRound:
         for player in self.players:
             card = self.shoe.deal_card()
             player.add_card(0, card)
+            self.card_counter.record_card(card)
 
         # Dealer's visible upcard.
         self.dealer.add_card(
             self.shoe.deal_card()
         )
+        self.card_counter.record_card(self.dealer.hand.cards[0])
+
 
         # Second card to every player.
         for player in self.players:
             card = self.shoe.deal_card()
             player.add_card(0, card)
+            self.card_counter.record_card(card)
 
         # Dealer's hidden card.
         self.dealer.add_card(

@@ -8,6 +8,7 @@ from blackjack.cards import Shoe
 from blackjack.player import Player
 from tournament.table_round import TableRound
 from tournament.observation import BettingObservation, ActionObservation
+from blackjack.card_counter import CardCounter
 
 
 class Tournament:
@@ -49,6 +50,10 @@ class Tournament:
         self.is_over = False
         self.current_table_round = None
         self.active_player_indices = []
+        self.card_counter = CardCounter()
+        self.decks = decks
+        self.reshuffle_threshold = int(decks * 52 * .2)
+
 
 
 
@@ -87,6 +92,10 @@ class Tournament:
             self.is_over = True
             return None
 
+        if self.shoe.cards_remaining() < self.reshuffle_threshold:
+            self.shoe = Shoe(self.decks)
+            self.card_counter = self.card_counter.reset()
+
         active_indices = (
             self.get_active_player_indices()
         )
@@ -122,6 +131,7 @@ class Tournament:
             starting_player=starting_local_index + 1,
             hit_soft_17=self.hit_soft_17,
             max_hands=self.max_hands,
+            card_counter = self.card_counter
         )
 
         self.current_round_number += 1
