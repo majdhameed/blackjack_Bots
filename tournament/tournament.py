@@ -1,7 +1,10 @@
+import math
+
 from blackjack.actions import Action
 from blackjack.cards import Shoe
 from blackjack.player import Player
 from tournament.table_round import TableRound
+from tournament.observation import BettingObservation, ActionObservation
 
 
 class Tournament:
@@ -138,10 +141,14 @@ class Tournament:
             player = self.current_table_round.get_player(round_player_index)
             bot = self.get_bot_for_round_player(round_player_index)
 
-            bet = bot.choose_bet(player, self.minimum_bet)
+            betting_observation = self.build_betting_observation(round_player_index)
 
-            if isinstance(bet, bool) or not isinstance(bet, int):
-                raise TypeError("Bet must be an integer")
+            bet = bot.choose_bet(betting_observation)
+
+            if isinstance(bet, bool) or not isinstance(bet, (int, float)):
+                raise TypeError("Bet must be a number")
+            if not math.isfinite(bet):
+                raise ValueError("Bet must be finite")
 
             self.current_table_round.place_bet(round_player_index, bet)
 
@@ -200,7 +207,8 @@ class Tournament:
 
             legal_actions = self.current_table_round.get_legal_actions(round_player_index, hand_index)
 
-            chosen_action = bot.choose_action(self.current_table_round, round_player_index, hand_index)
+            action_observation = self.build_action_observation(round_player_index, hand_index)
+            chosen_action = bot.choose_action(action_observation)
 
             if chosen_action not in legal_actions:
                 raise ValueError("Chosen action is not legal")
@@ -285,5 +293,151 @@ class Tournament:
 
 
 
+    def build_betting_observation(self, round_player_index):
+        if self.current_table_round is None:
+            raise ValueError("The current round does not exist")
+
+        table_round = self.current_table_round
+
+        if table_round.betting_complete():
+            raise ValueError("Betting is already complete")
+
+        expected_player_index = table_round.betting_order[table_round.next_bettor_index]
+
+        if round_player_index != expected_player_index:
+            raise ValueError("It's not this player's turn to bet")
+
+        permanent_player_index = self.active_player_indices[round_player_index]
+
+        current_bets = tuple(0 for _ in range(len(self.players)))
+
+        bets_placed = tuple(False for _ in range(len(self.players)))
+
+        for local_index, player in enumerate(table_round.players):
+            permanent_index = self.active_player_indices[local_index]
+            if len(player.hands) > 0:
+                first_hand = player.get_hand(0)
+                current_bets = current_bets[:permanent_index] + (first_hand.bet,) + current_bets[permanent_index + 1:]
+                bets_placed = bets_placed[:permanent_index] + (True,) + bets_placed[permanent_index + 1:]
+
+        bankrolls = tuple(player.bankroll for player in self.players)
+
+        active_players = tuple(
+            player_index in self.active_player_indices
+            for player_index in range(len(self.players)))
 
 
+        permanent_betting_order = tuple(
+            self.active_player_indices[local_index]
+            for local_index in table_round.betting_order
+        )
+
+        return BettingObservation(
+            round_number=self.current_round_number,
+            total_rounds=self.number_of_rounds,
+            rounds_remaining=self.number_of_rounds - self.current_round_number,
+            player_index=permanent_player_index,
+            round_player_index=round_player_index,
+            betting_position=table_round.next_bettor_index,
+            minimum_bet=self.minimum_bet,
+            bankroll = self.players[permanent_player_index].bankroll,
+            bankrolls=bankrolls,
+            active_players=active_players,
+            current_bets=current_bets,
+            bets_placed=bets_placed,
+            betting_order=permanent_betting_order,
+        )
+
+    def build_action_observation(self, round_player_index, hand_index):
+        table_round = self.current_table_round
+
+        if table_round is None:
+            raise ValueError("no table_round")
+
+        current_player_index = table_round.get_current_player_index()
+
+        if current_player_index is None:
+            raise ValueError("All players have finished acting")
+
+        if round_player_index != current_player_index:
+            raise ValueError("It is not this player's turn")
+
+        player = table_round.get_player(round_player_index)
+
+        player_hand = player.get_hand(hand_index)
+
+        legal_actions = table_round.get_legal_actions(round_player_index, hand_index)
+
+        if len(legal_actions) == 0:
+            raise ValueError("No legal actions available")
+
+        permanent_player_index = self.active_player_indices[round_player_index]
+
+        bankrolls = tuple(player.bankroll for player in self.players)
+
+        active_players = tuple(
+            player_index in self.active_player_indices
+            for player_index in range(len(self.players))
+        )
+
+        player_bets = list(0 for _ in range(len(self.players)))
+
+        for local_index, local_player in enumerate(table_round.players):
+            permanent_index = self.active_player_indices[local_index]
+
+            total_bet = 0
+
+            for local_player_hand in local_player.hands:
+                total_bet += local_player_hand.bet
+
+            player_bets[permanent_index] = total_bet
+
+        player_bets = tuple(player_bets)
+
+        current_bet = player_hand.bet
+
+        hand_total = player_hand.hand.get_total()
+
+        hand_is_soft = player_hand.hand.is_soft()
+
+        hand_card_values = tuple(
+            card.get_value()
+            for card in player_hand.hand.cards
+        )
+
+        hand_came_from_split = player_hand.came_from_split
+
+        dealer_upcard_value = table_round.dealer.hand.cards[0].get_value()
+
+        permanent_betting_order = tuple(
+            self.active_player_indices[local_index]
+            for local_index in table_round.betting_order
+        )
+
+        ordered_legal_actions = tuple(
+            action
+            for action in Action
+            if action in legal_actions
+        )
+
+        return ActionObservation(
+            round_number=self.current_round_number,
+            total_rounds=self.number_of_rounds,
+            rounds_remaining=self.number_of_rounds - self.current_round_number,
+            player_index=permanent_player_index,
+            round_player_index=round_player_index,
+            hand_index=hand_index,
+            bankroll=self.players[permanent_player_index].bankroll,
+            bankrolls=bankrolls,
+            current_bet=current_bet,
+            player_bets=player_bets,
+            hand_total=hand_total,
+            hand_is_soft=hand_is_soft,
+            hand_card_values=hand_card_values,
+            hand_came_from_split=hand_came_from_split,
+            dealer_upcard_value=dealer_upcard_value,
+            legal_actions=ordered_legal_actions,
+            betting_order=permanent_betting_order,
+            active_players=active_players,
+            hit_soft_17=self.hit_soft_17
+        )

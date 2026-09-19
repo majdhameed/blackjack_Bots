@@ -6,32 +6,82 @@ from blackjack.basic_strategy import (
     choose_action as choose_basic_strategy_action,
 )
 
+from blackjack.cards import Card
+from blackjack.hand import Hand
+from tournament.observation import BettingObservation, ActionObservation
 
 
 class BasicStrategyAgent:
-    def choose_bet(self, player_: Player, minimum_bet):
-        if player_.bankroll <= 0:
+    def choose_bet(self, betting_observation: BettingObservation):
+        if betting_observation.bankroll <= 0:
             raise ValueError("No money")
-        if player_.bankroll >= minimum_bet:
-            return minimum_bet
-        else:
-            return player_.bankroll
 
-    def choose_action(self, table_round, round_player_index, hand_index):
-        player = table_round.get_player(round_player_index)
-        player_hand = player.get_hand(hand_index)
-        legal_actions = table_round.get_legal_actions(round_player_index, hand_index)   
+        return min(betting_observation.minimum_bet,
+                   betting_observation.bankroll)
+    
+    def choose_action(self, observation: ActionObservation):
+        if not isinstance(
+            observation,
+            ActionObservation,
+        ):
+            raise TypeError(
+                "observation must be an ActionObservation"
+            )
+
+        legal_actions = set(
+            observation.legal_actions
+        )
 
         if not legal_actions:
-            raise ValueError("No legal actions available")
+            raise ValueError(
+                "This hand has no legal actions"
+            )
 
-        dealer_upcard = table_round.dealer.hand.cards[0]
+        reconstructed_hand = Hand()
 
-        action = choose_basic_strategy_action(player_hand.hand, dealer_upcard, can_double=Action.DOUBLE in legal_actions, can_split=Action.SPLIT in legal_actions, can_surrender=Action.SURRENDER in legal_actions, hit_soft_17=table_round.hit_soft_17 )    
+        for card_value in observation.hand_card_values:
+            if card_value == 11:
+                rank = "A"
+            else:
+                rank = card_value
 
-        if action not in legal_actions:
-            raise ValueError("Chosen action is not legal")
+            reconstructed_hand.add_card(
+                Card(rank, "Hearts")
+            )
 
-        return action
+            dealer_value = (
+                observation.dealer_upcard_value
+            )
 
-    
+            if dealer_value == 11:
+                dealer_rank = "A"
+            else:
+                dealer_rank = dealer_value
+
+            dealer_upcard = Card(
+                dealer_rank,
+                "Hearts",
+            )
+
+            action = choose_basic_strategy_action(
+                hand=reconstructed_hand,
+                dealer_upcard=dealer_upcard,
+                can_double=(
+                    Action.DOUBLE in legal_actions
+                ),
+                can_split=(
+                    Action.SPLIT in legal_actions
+                ),
+                can_surrender=(
+                    Action.SURRENDER in legal_actions
+                ),
+                hit_soft_17=observation.hit_soft_17,
+            )
+
+            if action not in legal_actions:
+                raise ValueError(
+                    "Basic strategy returned an "
+                    f"illegal action: {action}"
+                )
+
+            return action

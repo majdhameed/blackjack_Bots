@@ -1,6 +1,8 @@
 import os
+import random
 from collections import Counter
 
+from agents.all_in_agent import AllInAgent
 from agents.basic_strategy_agent import (
     BasicStrategyAgent,
 )
@@ -16,6 +18,27 @@ def ask_positive_integer(prompt):
             if value <= 0:
                 raise ValueError(
                     "Please enter a positive integer."
+                )
+
+            return value
+
+        except ValueError as error:
+            print(error)
+
+
+def ask_integer_in_range(
+    prompt,
+    minimum,
+    maximum,
+):
+    while True:
+        try:
+            value = int(input(prompt))
+
+            if value < minimum or value > maximum:
+                raise ValueError(
+                    f"Please enter a value from "
+                    f"{minimum} to {maximum}."
                 )
 
             return value
@@ -64,11 +87,30 @@ def clear_console():
     )
 
 
+def create_bot(strategy):
+    if strategy == "basic":
+        return BasicStrategyAgent()
+
+    if strategy == "all_in":
+        return AllInAgent()
+
+    raise ValueError(
+        f"Unknown strategy: {strategy}"
+    )
+
+
 def main():
-    print("Blackjack tournament simulator")
-    print("------------------------------")
+    print("Mixed blackjack tournament simulator")
+    print("------------------------------------")
 
     number_players = ask_player_count()
+
+    number_all_in = ask_integer_in_range(
+        "How many players should use the "
+        "all-in strategy? ",
+        0,
+        number_players,
+    )
 
     starting_bankroll = ask_positive_integer(
         "Enter the starting bankroll: "
@@ -100,25 +142,36 @@ def main():
             "starting bankroll."
         )
         print(
-            "Players will be forced to wager their "
-            "entire bankroll on the first hand."
+            "Players will wager their entire bankroll "
+            "on the first hand."
         )
 
-    win_credits = [
+    seat_win_credits = [
         0.0 for _ in range(number_players)
     ]
 
-    first_place_appearances = [
+    seat_first_places = [
         0 for _ in range(number_players)
     ]
 
-    total_ending_bankrolls = [
+    seat_bankroll_totals = [
         0.0 for _ in range(number_players)
     ]
+
+    strategy_entries = Counter()
+    strategy_first_places = Counter()
+    strategy_win_credits = Counter()
+    strategy_bankroll_totals = Counter()
+    strategy_bankruptcies = Counter()
 
     total_bankruptcies = 0
     tied_tournaments = 0
     outcome_counts = Counter()
+
+    progress_interval = max(
+        1,
+        number_tournaments // 10,
+    )
 
     for tournament_number in range(
         1,
@@ -129,10 +182,21 @@ def main():
             for _ in range(number_players)
         ]
 
+        strategy_labels = (
+            ["all_in"] * number_all_in
+            + ["basic"]
+            * (number_players - number_all_in)
+        )
+
+        random.shuffle(strategy_labels)
+
         bots = [
-            BasicStrategyAgent()
-            for _ in range(number_players)
+            create_bot(strategy)
+            for strategy in strategy_labels
         ]
+
+        for strategy in strategy_labels:
+            strategy_entries[strategy] += 1
 
         tournament = Tournament(
             players=players,
@@ -160,23 +224,46 @@ def main():
         shared_credit = 1 / len(winner_indices)
 
         for winner_index in winner_indices:
-            first_place_appearances[
+            strategy = strategy_labels[
+                winner_index
+            ]
+
+            seat_first_places[
                 winner_index
             ] += 1
 
-            win_credits[
+            seat_win_credits[
                 winner_index
+            ] += shared_credit
+
+            strategy_first_places[
+                strategy
+            ] += 1
+
+            strategy_win_credits[
+                strategy
             ] += shared_credit
 
         for player_index, player in enumerate(
             players
         ):
-            total_ending_bankrolls[
+            strategy = strategy_labels[
                 player_index
+            ]
+
+            seat_bankroll_totals[
+                player_index
+            ] += player.bankroll
+
+            strategy_bankroll_totals[
+                strategy
             ] += player.bankroll
 
             if player.bankroll <= 0:
                 total_bankruptcies += 1
+                strategy_bankruptcies[
+                    strategy
+                ] += 1
 
         for table_round in tournament.round_history:
             for player_outcomes in (
@@ -185,11 +272,6 @@ def main():
                 outcome_counts.update(
                     player_outcomes
                 )
-
-        progress_interval = max(
-            1,
-            number_tournaments // 10,
-        )
 
         if (
             tournament_number % progress_interval == 0
@@ -204,8 +286,8 @@ def main():
 
     clear_console()
 
-    print("Tournament simulation results")
-    print("-----------------------------")
+    print("Mixed tournament simulation results")
+    print("-----------------------------------")
     print(
         f"Tournaments simulated: "
         f"{number_tournaments:,}"
@@ -213,6 +295,13 @@ def main():
     print(
         f"Players per tournament: "
         f"{number_players:,}"
+    )
+    print(
+        f"Basic-strategy bettors: "
+        f"{number_players - number_all_in}"
+    )
+    print(
+        f"All-in bettors: {number_all_in}"
     )
     print(
         f"Hands per tournament: "
@@ -235,31 +324,91 @@ def main():
         f"{total_bankruptcies:,}"
     )
 
+    print("\nResults by strategy")
+    print("-------------------")
+
+    for strategy in ("basic", "all_in"):
+        entries = strategy_entries[strategy]
+
+        if entries == 0:
+            continue
+
+        first_place_rate = (
+            strategy_first_places[strategy]
+            / entries
+            * 100
+        )
+
+        credited_win_rate = (
+            strategy_win_credits[strategy]
+            / entries
+            * 100
+        )
+
+        average_bankroll = (
+            strategy_bankroll_totals[strategy]
+            / entries
+        )
+
+        bankruptcy_rate = (
+            strategy_bankruptcies[strategy]
+            / entries
+            * 100
+        )
+
+        display_name = {
+            "basic": "Minimum-bet basic strategy",
+            "all_in": "All-in basic strategy",
+        }[strategy]
+
+        print(f"\n{display_name}")
+        print(f"Entries: {entries:,}")
+        print(
+            f"First-place appearances: "
+            f"{strategy_first_places[strategy]:,}"
+        )
+        print(
+            f"First-place rate: "
+            f"{first_place_rate:.2f}%"
+        )
+        print(
+            f"Tie-adjusted win rate: "
+            f"{credited_win_rate:.2f}%"
+        )
+        print(
+            f"Average ending bankroll: "
+            f"{format_money(average_bankroll)}"
+        )
+        print(
+            f"Bankruptcy rate: "
+            f"{bankruptcy_rate:.2f}%"
+        )
+
     print("\nResults by seat")
     print("---------------")
 
     for player_index in range(number_players):
         average_bankroll = (
-            total_ending_bankrolls[player_index]
+            seat_bankroll_totals[player_index]
             / number_tournaments
         )
 
         first_place_rate = (
-            first_place_appearances[player_index]
+            seat_first_places[player_index]
             / number_tournaments
             * 100
         )
 
         credited_win_rate = (
-            win_credits[player_index]
+            seat_win_credits[player_index]
             / number_tournaments
             * 100
         )
 
-        print(f"\nPlayer {player_index + 1}")
+        print(f"\nSeat {player_index + 1}")
         print(
             f"First-place appearances: "
-            f"{first_place_appearances[player_index]:,}"
+            f"{seat_first_places[player_index]:,}"
         )
         print(
             f"First-place rate: "

@@ -1,21 +1,22 @@
 from blackjack.actions import Action
+from agents.all_in_agent import AllInAgent
 from blackjack.player import Player
 from tournament.tournament import Tournament
 
 
-class StandBot:
-    def choose_bet(self, player, minimum_bet):
-        return min(player.bankroll, minimum_bet)
+from blackjack.actions import Action
 
-    def choose_action(
-        self,
-        table_round,
-        round_player_index,
-        hand_index,
-    ):
-        legal_actions = table_round.get_legal_actions(
-            round_player_index,
-            hand_index,
+
+class StandBot:
+    def choose_bet(self, betting_observation):
+        return min(
+            betting_observation.bankroll,
+            betting_observation.minimum_bet,
+        )
+
+    def choose_action(self, action_observation):
+        legal_actions = (
+            action_observation.legal_actions
         )
 
         if Action.STAND in legal_actions:
@@ -113,6 +114,18 @@ def test_place_round_bets():
         assert len(player.hands) == 1
         assert player.get_hand(0).bet == 100
         assert player.bankroll == 9_900
+
+
+def test_all_in_bot_can_bet_fractional_bankroll():
+    tournament = make_tournament(player_count=2)
+    tournament.players[0].bankroll = 150.5
+    tournament.bots[0] = AllInAgent()
+
+    tournament.start_next_round()
+    tournament.place_round_bets()
+
+    assert tournament.players[0].get_hand(0).bet == 150.5
+    assert tournament.players[0].bankroll == 0
 
 
 def test_begin_player_actions_deals_cards():
