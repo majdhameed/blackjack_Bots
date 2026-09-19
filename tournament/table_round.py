@@ -282,6 +282,7 @@ class TableRound:
 
             self.dealer_turn_complete = True
             self.is_over = True
+            self.card_counter.record_card(self.dealer.hand.cards[1])
             return True
 
         for player_index, player in enumerate(
@@ -425,6 +426,7 @@ class TableRound:
 
         card = self.shoe.deal_card()
         player.add_card(hand_index, card)
+        self.card_counter.record_card(card)
 
         self.advance_action_turn()
 
@@ -465,6 +467,7 @@ class TableRound:
 
         card = self.shoe.deal_card()
         player.add_card(hand_index, card)
+        self.card_counter.record_card(card)
         player.finish_double(hand_index)
         self.advance_action_turn()
 
@@ -491,6 +494,8 @@ class TableRound:
         second_card = self.shoe.deal_card()
         player.add_card(hand_index, first_card)
         player.add_card(hand_index + 1, second_card)
+        self.card_counter.record_card(first_card)
+        self.card_counter.record_card(second_card)
 
         self._finish_unplayable_split_aces(player_index)
         self.advance_action_turn()
@@ -544,6 +549,9 @@ class TableRound:
 
         self.dealer.play(self.shoe)
         self.dealer_turn_complete = True
+
+        for i in range(1, len(self.dealer.hand.cards)):
+            self.card_counter.record_card(self.dealer.hand.cards[i])
         return True
 
     def settle_hand(self, player_index, hand_index):
