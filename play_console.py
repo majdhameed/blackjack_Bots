@@ -1,3 +1,5 @@
+# Interactive single-player blackjack interface. Input/display concerns stay
+# here while the blackjack package owns the game rules and state transitions.
 import os
 
 from blackjack.cards import Shoe
@@ -54,6 +56,7 @@ def display_player_hand(player_hand, hand_index):
 
 
 def ask_bet(player, minimum_bet):
+    # Keep prompting until the player quits or Player accepts the wager.
     while True:
         print(f"\nBankroll: {format_money(player.bankroll)}")
         print(f"Minimum bet: {format_money(minimum_bet)}")
@@ -77,6 +80,7 @@ def ask_bet(player, minimum_bet):
 
 
 def play_player_hands(round_):
+    # The hand list can grow during this loop when the player splits.
     hand_index = 0
 
     while hand_index < len(round_.player.hands):
@@ -137,6 +141,7 @@ def play_player_hands(round_):
 
 
 def display_results(round_):
+    # Outcomes have the same ordering as the player's final hand list.
     print("\nDealer's hand")
     print(f"Cards: {display_cards(round_.dealer.hand)}")
     print(f"Total: {round_.dealer.hand.get_total()}")
@@ -156,6 +161,7 @@ def display_results(round_):
 
 
 def play_game():
+    # Reuse the shoe across rounds until the game ends or it needs replacement.
     clear_console()
     print("Blackjack console game")
 

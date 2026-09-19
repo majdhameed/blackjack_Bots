@@ -1,4 +1,6 @@
+# A blackjack hand with helpers for totals, soft aces, busts, and pairs.
 from blackjack.cards import Card
+
 
 class Hand:
     def __init__(self):
@@ -19,6 +21,7 @@ class Hand:
             if card.rank == 'A':
                 ace_count += 1
 
+        # Convert aces from 11 to 1 only until the hand no longer busts.
         while total > 21 and ace_count > 0:
             total -= 10
             ace_count -= 1
@@ -46,9 +49,11 @@ class Hand:
             total -= 10
             ace_count -= 1
 
+        # A hand is soft when at least one ace still counts as 11.
         return ace_count > 0
 
     def can_split(self):
+        # Face cards share a value, so any two ten-valued cards may split.
         if len(self.cards) == 2 and self.cards[0].get_value() == self.cards[1].get_value():
             return True
         return False

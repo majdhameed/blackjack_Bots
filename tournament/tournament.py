@@ -1,3 +1,6 @@
+# Tournament coordinator. It creates successive TableRound instances, maps
+# temporary table indices back to permanent seats, and presents safe snapshots
+# to each bot before collecting its bet or action.
 import math
 
 from blackjack.actions import Action
@@ -51,6 +54,7 @@ class Tournament:
 
 
     def get_active_player_indices(self):
+        # Permanent seat indices are retained even after other players bust out.
         indices = []
         for player_index, player in enumerate(self.players):
             if player.bankroll > 0:
@@ -59,6 +63,7 @@ class Tournament:
         return indices
     
     def tournament_should_end(self):
+        # A tournament stops at the round limit or when at most one player remains.
         active_players = self.get_active_player_indices()
 
         return (
@@ -68,6 +73,8 @@ class Tournament:
         )
 
     def start_next_round(self):
+        # Build a compact table containing only funded players while preserving
+        # the rotating starting seat from the full tournament.
         if (
             self.current_table_round is not None
             and not self.current_table_round.is_over
@@ -122,6 +129,7 @@ class Tournament:
         return self.current_table_round
 
     def get_bot_for_round_player(self, round_player_index):
+        # Convert a current-round index to its permanent tournament bot.
         if round_player_index < 0 or round_player_index >= len(self.active_player_indices):
             raise ValueError("Player index is outside the range of valid players")
 
@@ -132,6 +140,7 @@ class Tournament:
         return bot
 
     def place_round_bets(self):
+        # Bots act in table order and receive only an immutable observation.
         if self.current_table_round is None:
             raise TypeError("Table round must be of type TableRound")
         if self.current_table_round.is_over:
@@ -156,6 +165,8 @@ class Tournament:
             raise ValueError("Bets have not all been placed")
 
     def begin_player_actions(self):
+        # Initial dealing and natural resolution form the boundary between the
+        # betting phase and ordinary player actions.
         if self.current_table_round is None:
             raise ValueError("Player round does not exist")
         if not self.current_table_round.betting_complete():
@@ -180,6 +191,7 @@ class Tournament:
         return active_hand_index
 
     def play_all_players(self):
+        # Continue until every active hand at the table is finished.
         if self.current_table_round is None:
             raise ValueError("Table round does not exist")
         if not self.current_table_round.naturals_checked:
@@ -229,6 +241,7 @@ class Tournament:
 
 
     def finish_current_round(self):
+        # Run the dealer and settlement phases, then archive the completed round.
         if self.current_table_round is None:
             raise ValueError("The current round does not exist")
 
@@ -256,6 +269,7 @@ class Tournament:
         return outcomes
 
     def play_one_round(self):
+        # Drive all phases of one table round in their required order.
         table_round = self.start_next_round()
 
         if table_round is None:
@@ -273,6 +287,7 @@ class Tournament:
         return outcomes
 
     def get_rankings(self):
+        # Rankings retain permanent player indices and sort by bankroll descending.
         rankings = sorted(
             [(player_index, player.bankroll) for player_index, player in enumerate(self.players)],
             key=lambda x: x[1],
@@ -281,6 +296,7 @@ class Tournament:
         return rankings
 
     def play_tournament(self):
+        # Repeatedly play rounds until an end condition is reached.
         while not self.is_over:
             outcomes = self.play_one_round()
 
@@ -294,6 +310,7 @@ class Tournament:
 
 
     def build_betting_observation(self, round_player_index):
+        # Convert round-local state into permanent-seat tuples for the acting bot.
         if self.current_table_round is None:
             raise ValueError("The current round does not exist")
 
@@ -349,6 +366,7 @@ class Tournament:
         )
 
     def build_action_observation(self, round_player_index, hand_index):
+        # Expose values and legal choices without exposing mutable engine objects.
         table_round = self.current_table_round
 
         if table_round is None:

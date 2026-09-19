@@ -1,3 +1,5 @@
+# Per-hand state for one player. Splits create multiple PlayerHand instances,
+# each with its own wager, cards, completion flags, and settlement outcome.
 from blackjack.cards import Card
 from blackjack.hand import Hand
 
@@ -70,6 +72,7 @@ class PlayerHand:
         self.has_stood = True
 
     def is_finished(self):
+        # Reaching 21 ends player decisions even without an explicit stand.
         return (
             self.has_stood
             or self.has_surrendered
@@ -86,11 +89,12 @@ class PlayerHand:
         self.has_stood = True
 
     def is_natural_blackjack(self):
-        
+        # A two-card 21 created by a split is paid as a normal win.
         return self.hand.is_blackjack() and not self.came_from_split 
 
 
     def mark_settled(self, outcome):
+        # Settlement is intentionally one-way so a hand cannot pay out twice.
         valid_outcomes = {
             "win",
             "loss",

@@ -1,3 +1,5 @@
+# Batch simulator for one automated player. It drives the single-player Round
+# engine repeatedly and aggregates wagers, outcomes, and ending bankroll.
 from collections import Counter
 
 from agents.basic_strategy_agent import BasicStrategyAgent
@@ -17,6 +19,7 @@ def execute_action(
         hand_index,
     )
 
+    # Translate the bot's selected enum into the corresponding engine command.
     if action == Action.HIT:
         round_.player_hit(hand_index)
 
@@ -51,6 +54,7 @@ def execute_action(
 
 
 def play_player_hands(round_, bot):
+    # Splitting can append hands, so the outer loop checks the live list length.
     hand_index = 0
     action_count = 0
 
@@ -77,6 +81,7 @@ def play_player_hands(round_, bot):
                 hand_index,
             )
 
+            # Guarding the count later prevents a faulty bot from looping forever.
             action_count += 1
 
             if action_count > 100:
@@ -103,6 +108,8 @@ def play_single_round(
     hit_soft_17,
     max_hands=4,
 ):
+    # Each round follows the same phases: wager, deal, player actions, dealer,
+    # then settlement.
     bet = bot.choose_bet(
         player,
         minimum_bet,
@@ -152,6 +159,7 @@ def simulate(
     total_hands = 0
     total_wagered = 0
 
+    # Stop early if the player loses the entire bankroll.
     for _ in range(number_of_rounds):
         if player.bankroll <= 0:
             break
@@ -209,6 +217,7 @@ def simulate(
 
 
 def print_results(results):
+    # Keep presentation separate from simulation so callers can reuse the data.
     print("\nSimulation results")
     print("------------------")
 

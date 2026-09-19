@@ -1,5 +1,9 @@
+# Immutable snapshots passed to bots. They expose the information a bot may
+# use without giving it mutable access to the tournament engine.
 from dataclasses import dataclass
 
+
+# State available while a player is selecting a wager.
 @dataclass(frozen=True)
 class BettingObservation:
     round_number: int
@@ -16,6 +20,7 @@ class BettingObservation:
     bets_placed: tuple[bool]
     betting_order : tuple[int]
 
+# State available while a player is selecting a blackjack action.
 @dataclass(frozen=True)
 class ActionObservation:
     round_number: int

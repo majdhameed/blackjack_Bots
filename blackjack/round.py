@@ -1,3 +1,5 @@
+# Single-player blackjack round state machine. Public methods enforce phase and
+# action legality while Player owns bankroll changes and PlayerHand owns hand state.
 from blackjack.actions import Action
 from blackjack.cards import Shoe
 from blackjack.dealer import Dealer
@@ -41,6 +43,8 @@ class Round:
         self.outcomes = []
 
     def _finish_unplayable_split_aces(self):
+        # Split aces normally receive one card each. Automatically stand them
+        # unless another ace can legally and affordably be split again.
         for player_hand in self.player.hands:
             if not player_hand.split_aces:
                 continue
@@ -74,6 +78,7 @@ class Round:
                 player_hand.finish_split_aces()
 
     def deal_initial_cards(self):
+        # Deal alternately so the resulting order matches a physical table.
         if self.is_over:
             raise ValueError("Round is already over")
 
@@ -112,6 +117,7 @@ class Round:
         )
 
     def resolve_naturals(self):
+        # Naturals settle before ordinary player actions or dealer play.
         if self.is_over:
             raise ValueError("Round is already over")
 
@@ -182,6 +188,8 @@ class Round:
         return False
 
     def get_legal_actions(self, hand_index):
+        # Availability depends on both the round phase and the selected hand's
+        # cards, origin, bankroll, and split limits.
         if self.is_over:
             return set()
 
@@ -284,6 +292,7 @@ class Round:
         hand_index,
         additional_bet,
     ):
+        # Doubling adds one wager, deals exactly one card, and ends the hand.
         legal_actions = self.get_legal_actions(
             hand_index
         )
@@ -317,6 +326,8 @@ class Round:
         self.player.surrender(hand_index)
 
     def player_split(self, hand_index):
+        # Player replaces the pair with two hands; the round then supplies one
+        # new card to each resulting hand.
         legal_actions = self.get_legal_actions(
             hand_index
         )
@@ -348,6 +359,7 @@ class Round:
         return first_card, second_card
 
     def play_dealer(self):
+        # Dealer play begins only after every non-surrendered player hand ends.
         if self.is_over:
             raise ValueError("Round is already over")
 
@@ -387,6 +399,7 @@ class Round:
         return True
 
     def settle_hand(self, hand_index):
+        # Return the wager/payout through Player, then lock in one outcome.
         if self.is_over:
             raise ValueError("Round is already over")
 
@@ -446,6 +459,7 @@ class Round:
         return "push"
 
     def settle_round(self):
+        # Settle each hand once and preserve hand order in the result list.
         if self.is_over:
             raise ValueError("Round is already over")
 

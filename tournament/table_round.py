@@ -1,5 +1,7 @@
 import random
 
+# Multi-player blackjack round. It coordinates table betting/action order and
+# applies one shared dealer result to every active player's hands.
 from blackjack.actions import Action
 from blackjack.cards import Shoe
 from blackjack.dealer import Dealer
@@ -82,6 +84,8 @@ class TableRound:
         return True
     
     def get_current_player_index(self):
+        # Skip players whose hands have already finished and return the next
+        # player who can act.
         if self.current_action_position >= len(
             self.action_order
         ):
@@ -92,6 +96,7 @@ class TableRound:
         ]
 
     def advance_action_turn(self):
+        # Move forward only after the current player's full set of hands ends.
         while self.current_action_position < len(
             self.action_order
         ):
@@ -103,6 +108,7 @@ class TableRound:
             self.current_action_position += 1
 
     def _finish_unplayable_split_aces(self, player_index):
+        # Split aces auto-stand after one card unless another split is possible.
             player = self.get_player(player_index)
             player_hands = player.hands
             for player_hand in player_hands:
@@ -138,6 +144,7 @@ class TableRound:
                     player_hand.finish_split_aces()
 
     def place_bet(self, player_index, bet_amount):
+        # Betting order rotates each round and must be followed exactly.
         if self.is_over:
             raise Exception("Cannot place a bet after the round is over.")
         if self.next_bettor_index >= len(self.betting_order):
@@ -158,6 +165,7 @@ class TableRound:
         return self.next_bettor_index >= len(self.betting_order)
 
     def deal_initial_cards(self):
+        # Deal one card around the table, one to the dealer, then repeat.
         if self.is_over:
             raise ValueError(
                 "Cannot deal cards after the round is over"
@@ -208,6 +216,8 @@ class TableRound:
 
         
     def resolve_naturals(self):
+        # Dealer blackjack can settle every player immediately; otherwise each
+        # player natural is paid before normal actions begin.
         if self.is_over:
             raise ValueError(
                 "Cannot resolve naturals after the round is over"
@@ -298,6 +308,8 @@ class TableRound:
         player_index,
         hand_index,
     ):
+        # Legal actions combine table phase, turn order, hand state, bankroll,
+        # and the configured maximum number of split hands.
         if self.is_over:
             return set()
 
@@ -429,6 +441,7 @@ class TableRound:
 
 
     def player_double(self, player_index, hand_index, additional_bet):
+        # A double draws one final card and completes that hand.
         legal_actions = self.get_legal_actions(
             player_index, hand_index
         )
@@ -451,6 +464,7 @@ class TableRound:
 
 
     def player_split(self, player_index, hand_index):
+        # Splitting replaces one hand with two and deals one new card to each.
         legal_actions = self.get_legal_actions(
             player_index, hand_index
         )
@@ -491,6 +505,7 @@ class TableRound:
         self.advance_action_turn()
 
     def has_playable_hand(self):
+        # The dealer need not draw when every remaining hand busted or surrendered.
         for player in self.players:
             for player_hand in player.hands:
                 if (
@@ -503,6 +518,7 @@ class TableRound:
         return False
 
     def play_dealer(self):
+        # Dealer play waits until all player turns have completed.
         if self.is_over:
             raise ValueError("Round is already over")
         if not self.naturals_checked:
@@ -523,6 +539,7 @@ class TableRound:
         return True
 
     def settle_hand(self, player_index, hand_index):
+        # Compare one completed hand with the shared dealer hand and pay it once.
         if self.is_over:
             raise ValueError("The round is already over")
         
@@ -582,6 +599,7 @@ class TableRound:
         return "push"
 
     def settle_round(self):
+        # Produce one ordered outcome list per player, then close the table round.
         if self.is_over:
             raise ValueError("Round is already over")
 

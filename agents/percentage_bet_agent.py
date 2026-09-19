@@ -1,5 +1,8 @@
+# Betting variant that wagers a configured fraction of the current bankroll
+# while using BasicStrategyAgent for card-play decisions.
 from agents.basic_strategy_agent import BasicStrategyAgent
 from tournament.observation import BettingObservation
+
 
 class PercentageBetAgent(BasicStrategyAgent):
     def __init__(self, percent):
@@ -14,6 +17,8 @@ class PercentageBetAgent(BasicStrategyAgent):
         if betting_observation.bankroll <= betting_observation.minimum_bet:
             return betting_observation.bankroll
 
+        # Bets are rounded to a whole unit unless only the remaining bankroll
+        # can legally be wagered.
         percent_bet = int(round(betting_observation.bankroll * self.percent))
 
         if percent_bet < betting_observation.minimum_bet:

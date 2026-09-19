@@ -1,3 +1,5 @@
+# Bot that wagers the table minimum and chooses card-play actions from the
+# basic-strategy chart using immutable tournament observations.
 from blackjack.player import Player
 from blackjack.round import Round
 
@@ -16,6 +18,7 @@ class BasicStrategyAgent:
         if betting_observation.bankroll <= 0:
             raise ValueError("No money")
 
+        # A player below the minimum is allowed to wager the remaining balance.
         return min(betting_observation.minimum_bet,
                    betting_observation.bankroll)
     
@@ -37,6 +40,8 @@ class BasicStrategyAgent:
                 "This hand has no legal actions"
             )
 
+        # Observations contain values rather than engine objects, so rebuild a
+        # temporary hand for the shared basic-strategy function.
         reconstructed_hand = Hand()
 
         for card_value in observation.hand_card_values:
@@ -58,6 +63,7 @@ class BasicStrategyAgent:
             else:
                 dealer_rank = dealer_value
 
+            # Suit has no strategic effect; Hearts is a harmless placeholder.
             dealer_upcard = Card(
                 dealer_rank,
                 "Hearts",

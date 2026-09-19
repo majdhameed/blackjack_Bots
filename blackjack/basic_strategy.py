@@ -1,15 +1,19 @@
+# Rule-based basic-strategy chart. The caller supplies which optional actions
+# are legal so unavailable doubles and surrenders can fall back safely.
 from blackjack.actions import Action
 from blackjack.cards import Card
 from blackjack.hand import Hand
 
 
 def _double_or(fallback, can_double):
+    # Strategy charts use "double, otherwise X" entries.
     if can_double:
         return Action.DOUBLE
     return fallback
 
 
 def _surrender_or(fallback, can_surrender):
+    # Strategy charts likewise provide a fallback when surrender is disabled.
     if can_surrender:
         return Action.SURRENDER
     return fallback
@@ -75,6 +79,7 @@ def choose_action(
                 return Action.SPLIT
             return Action.HIT
 
+    # Soft totals are evaluated separately because an ace still counts as 11.
     if hand.is_soft():
         if player_total >= 20:
             return Action.STAND

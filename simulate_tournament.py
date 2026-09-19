@@ -1,3 +1,5 @@
+# Runs repeated seven-seat tournaments, assigning one betting strategy to each
+# seat and aggregating both strategy-level and seat-level results.
 import os
 import random
 from collections import Counter
@@ -78,6 +80,7 @@ def clear_console():
 
 
 def create_bot(strategy):
+    # Card-play behavior is shared; these agents differ only in bet sizing.
     if strategy == "minimum":
         return BasicStrategyAgent()
 
@@ -165,6 +168,7 @@ def main():
         number_tournaments // 10,
     )
 
+    # Shuffle strategies between seats each tournament to reduce seat-order bias.
     for tournament_number in range(
         1,
         number_tournaments + 1,

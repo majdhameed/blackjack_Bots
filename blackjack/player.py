@@ -1,3 +1,5 @@
+# Player bankroll and hand management. This layer applies wagers and payouts;
+# Round and TableRound decide when each operation is legal in the game flow.
 from blackjack.cards import Card
 from blackjack.player_hand import PlayerHand
 
@@ -32,6 +34,7 @@ class Player:
                 "Bankroll is not large enough to place this bet"
             )
 
+        # A short bankroll may be wagered in full even below the table minimum.
         if bet < minimum_bet and bet != self.bankroll:
             raise ValueError(
                 "Bet must meet the minimum or equal the remaining bankroll"
@@ -53,6 +56,8 @@ class Player:
         player_hand.stand()
 
     def double_down(self, hand_index, additional_bet):
+        # A player may double for less when the remaining bankroll cannot match
+        # the original wager.
         player_hand = self.get_hand(hand_index)
 
         if player_hand.is_finished():
@@ -91,6 +96,7 @@ class Player:
         player_hand = self.get_hand(hand_index)
 
         player_hand.mark_surrendered()
+        # Surrender returns half of the original wager.
         self.bankroll += player_hand.bet * 0.5
 
     def split_hand(self, hand_index, max_hands=4):
@@ -136,6 +142,7 @@ class Player:
 
         self.bankroll -= original_bet
 
+        # Replace the original hand in place so play order remains stable.
         self.hands[hand_index:hand_index + 1] = [
             first_hand,
             second_hand,
@@ -150,6 +157,7 @@ class Player:
     def win_blackjack(self, hand_index):
         player_hand = self.get_hand(hand_index)
 
+        # Natural blackjack pays 3:2; a split 21 is only a normal 1:1 win.
         if player_hand.came_from_split:
             self.bankroll += player_hand.bet * 2
         else:

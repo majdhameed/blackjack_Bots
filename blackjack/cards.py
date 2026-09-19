@@ -1,3 +1,5 @@
+# Card and shoe primitives. A shoe contains one or more shuffled decks and
+# removes cards as they are dealt.
 import random
 
 RANKS = [2, 3, 4, 5, 6, 7 , 8, 9, 10, 'J', 'Q', 'K', 'A']
@@ -13,6 +15,7 @@ class Card:
         self.suit = suit
 
     def get_value(self):
+        # Aces begin at 11; Hand reduces them to 1 when needed to avoid a bust.
         if self.rank == 'A':
             return 11
         if self.rank in ['J', 'Q', 'K']:
@@ -29,6 +32,7 @@ class Shoe:
         self.decks = decks
         self.cards = []
 
+        # Build every rank/suit combination once for each requested deck.
         i = 0
 
         while i < decks:
@@ -44,6 +48,7 @@ class Shoe:
         if len(self.cards) == 0:
             raise ValueError("There are no cards to deal!")
 
+        # Popping avoids repeatedly shifting the rest of the list.
         return self.cards.pop()
 
     def cards_remaining(self):
