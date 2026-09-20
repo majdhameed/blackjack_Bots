@@ -19,6 +19,13 @@ class BettingObservation:
     current_bets: tuple[float]
     bets_placed: tuple[bool]
     betting_order : tuple[int]
+    card_value_counts: tuple
+    cards_seen: int
+    running_count: int
+    true_count: float
+    cards_remaining: int
+    decks_remaining: float
+    shoe_penetration: float
 
 # State available while a player is selecting a blackjack action.
 @dataclass(frozen=True)
@@ -42,4 +49,11 @@ class ActionObservation:
     betting_order: tuple
     active_players: tuple
     hit_soft_17: bool
+    card_value_counts: tuple
+    cards_seen: int
+    running_count: int
+    true_count: float
+    cards_remaining: int
+    decks_remaining: float
+    shoe_penetration: float
 

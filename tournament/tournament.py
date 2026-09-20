@@ -94,7 +94,7 @@ class Tournament:
 
         if self.shoe.cards_remaining() < self.reshuffle_threshold:
             self.shoe = Shoe(self.decks)
-            self.card_counter = self.card_counter.reset()
+            self.card_counter.reset()
 
         active_indices = (
             self.get_active_player_indices()
@@ -157,7 +157,6 @@ class Tournament:
             raise ValueError("This round is already over")
 
         for round_player_index in self.current_table_round.betting_order:
-            player = self.current_table_round.get_player(round_player_index)
             bot = self.get_bot_for_round_player(round_player_index)
 
             betting_observation = self.build_betting_observation(round_player_index)
@@ -358,6 +357,9 @@ class Tournament:
             self.active_player_indices[local_index]
             for local_index in table_round.betting_order
         )
+        count_information = (
+            self.get_count_information()
+        )
 
         return BettingObservation(
             round_number=self.current_round_number,
@@ -373,6 +375,7 @@ class Tournament:
             current_bets=current_bets,
             bets_placed=bets_placed,
             betting_order=permanent_betting_order,
+            **count_information
         )
 
     def build_action_observation(self, round_player_index, hand_index):
@@ -448,6 +451,10 @@ class Tournament:
             if action in legal_actions
         )
 
+        count_information = (
+            self.get_count_information()
+        )
+
         return ActionObservation(
             round_number=self.current_round_number,
             total_rounds=self.number_of_rounds,
@@ -467,5 +474,42 @@ class Tournament:
             legal_actions=ordered_legal_actions,
             betting_order=permanent_betting_order,
             active_players=active_players,
-            hit_soft_17=self.hit_soft_17
+            hit_soft_17=self.hit_soft_17,
+            **count_information
         )
+
+
+    def get_count_information(self):
+        cards_remaining = self.shoe.cards_remaining()
+
+        decks_remaining = cards_remaining / 52
+
+        total_shoe_cards = self.decks * 52
+
+        shoe_penetration = 1 - (cards_remaining / total_shoe_cards)
+
+        if decks_remaining > 0:
+            true_count = self.card_counter.get_true_count(decks_remaining)
+        else:
+            true_count = 0
+
+        return {
+            "card_value_counts": (
+                self.card_counter.get_counts()
+            ),
+            "cards_seen": (
+                self.card_counter.cards_seen
+            ),
+            "running_count": (
+                self.card_counter.running_count
+            ),
+            "true_count": float(true_count),
+            "cards_remaining": cards_remaining,
+            "decks_remaining": float(
+                decks_remaining
+            ),
+            "shoe_penetration": float(
+                shoe_penetration
+            ),
+        }
+            
