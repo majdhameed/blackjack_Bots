@@ -315,7 +315,7 @@ class Tournament:
 
 
         return self.get_rankings()
-
+        
 
 
     def build_betting_observation(self, round_player_index):

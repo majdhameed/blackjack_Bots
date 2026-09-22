@@ -1,6 +1,7 @@
 import pytest
 
 from blackjack.actions import Action
+from blackjack.card_counter import CardCounter
 from blackjack.cards import Card, Shoe
 from blackjack.player import Player
 from tournament.table_round import TableRound
@@ -27,6 +28,8 @@ def make_table(
         for _ in range(player_count)
     ]
 
+    card_counter = CardCounter()
+
     table = TableRound(
         players=players,
         shoe=Shoe(1),
@@ -34,6 +37,7 @@ def make_table(
         starting_player=starting_player,
         hit_soft_17=False,
         max_hands=4,
+        card_counter=card_counter
     )
 
     return table
