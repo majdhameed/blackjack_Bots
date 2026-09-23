@@ -1,15 +1,23 @@
 import random
 from pathlib import Path
 
-from agents.all_in_agent import AllInAgent
 from agents.basic_strategy_agent import (
     BasicStrategyAgent,
 )
+from agents.chasing_agent import ChasingAgent
+from agents.controlled_lead_martingale_agent import (
+    ControlledLeadMartingaleAgent,
+)
+from agents.early_lead_agent import EarlyLeadAgent
+from agents.lead_protection_agent import (
+    LeadProtectionAgent,
+)
+from agents.human_behavior_agent import HumanBehaviorAgent
 from agents.neural_betting_agent import (
     NeuralBettingAgent,
 )
-from agents.percentage_bet_agent import (
-    PercentageBetAgent,
+from agents.unpredictable_betting_agent import (
+    UnpredictableBettingAgent,
 )
 from blackjack.player import Player
 from ml.betting_network import BettingNetwork
@@ -18,12 +26,22 @@ from tournament.tournament import Tournament
 
 STRATEGY_NAMES = (
     "neural",
-    "minimum",
-    "10_percent",
-    "20_percent",
-    "30_percent",
-    "50_percent",
-    "all_in",
+    "minimum_control",
+    "controlled_lead_martingale",
+    "aggressive_chaser",
+    "lead_protector",
+    "early_lead",
+    "adaptive_human",
+)
+
+RISK_TAKER_STRATEGY_NAMES = (
+    "neural",
+    "minimum_control",
+    "half_bankroll_leader_1",
+    "half_bankroll_leader_2",
+    "opening_all_in_leader",
+    "lead_protector",
+    "aggressive_chaser",
 )
 
 
@@ -39,41 +57,136 @@ def create_competitors(saved_network_path):
             lambda: NeuralBettingAgent(network),
         ),
         (
-            "minimum",
+            "minimum_control",
             lambda: BasicStrategyAgent(),
         ),
         (
-            "10_percent",
-            lambda: PercentageBetAgent(0.10),
+            "controlled_lead_martingale",
+            lambda: ControlledLeadMartingaleAgent(),
         ),
         (
-            "20_percent",
-            lambda: PercentageBetAgent(0.20),
+            "aggressive_chaser",
+            lambda: ChasingAgent(0.35, 0.65),
+        ),
+        ("lead_protector", LeadProtectionAgent),
+        (
+            "early_lead",
+            lambda: EarlyLeadAgent(0.25, 0.50),
         ),
         (
-            "30_percent",
-            lambda: PercentageBetAgent(0.30),
-        ),
-        (
-            "50_percent",
-            lambda: PercentageBetAgent(0.50),
-        ),
-        (
-            "all_in",
-            lambda: AllInAgent(),
+            "adaptive_human",
+            lambda: HumanBehaviorAgent(
+                seed=12345,
+                base_fraction=0.05,
+                maximum_fraction=0.25,
+            ),
         ),
     ]
 
 
-def create_statistics():
+def create_risk_taker_competitors(saved_network_path):
+    network = BettingNetwork.load(saved_network_path)
+
+    return [
+        (
+            "neural",
+            lambda: NeuralBettingAgent(network),
+        ),
+        (
+            "minimum_control",
+            lambda: BasicStrategyAgent(),
+        ),
+        (
+            "half_bankroll_leader_1",
+            lambda: EarlyLeadAgent(0.25, 0.50),
+        ),
+        (
+            "half_bankroll_leader_2",
+            lambda: EarlyLeadAgent(0.25, 0.50),
+        ),
+        (
+            "opening_all_in_leader",
+            lambda: EarlyLeadAgent(0.10, 1.00),
+        ),
+        ("lead_protector", LeadProtectionAgent),
+        (
+            "aggressive_chaser",
+            lambda: ChasingAgent(0.35, 0.65),
+        ),
+    ]
+
+
+def create_league_competitors(
+    saved_network_path,
+    league_directory="models/league",
+):
+    network = BettingNetwork.load(saved_network_path)
+    league_paths = sorted(
+        Path(league_directory).glob("champion_*.npz")
+    )[-6:]
+
+    competitors = [
+        (
+            "neural",
+            lambda: NeuralBettingAgent(network),
+        )
+    ]
+    for champion_number, league_path in enumerate(
+        league_paths,
+        start=1,
+    ):
+        champion = BettingNetwork.load(league_path)
+        competitors.append(
+            (
+                f"league_champion_{champion_number}",
+                lambda champion=champion: NeuralBettingAgent(
+                    champion
+                ),
+            )
+        )
+
+    fillers = (
+        (
+            "league_controlled",
+            ControlledLeadMartingaleAgent,
+        ),
+        ("league_protector", LeadProtectionAgent),
+        (
+            "league_chaser",
+            lambda: ChasingAgent(0.35, 0.65),
+        ),
+        (
+            "league_human",
+            lambda: HumanBehaviorAgent(
+                seed=54321,
+                base_fraction=0.05,
+                maximum_fraction=0.30,
+            ),
+        ),
+        (
+            "league_early_lead",
+            lambda: EarlyLeadAgent(0.25, 0.50),
+        ),
+        ("league_minimum", BasicStrategyAgent),
+    )
+    for name, factory in fillers:
+        if len(competitors) == 7:
+            break
+        competitors.append((name, factory))
+
+    return competitors
+
+
+def create_statistics(strategy_names=STRATEGY_NAMES):
     return {
         strategy_name: {
             "win_credit": 0.0,
+            "top_two_credit": 0.0,
             "position_total": 0.0,
             "bankroll_total": 0.0,
             "bankruptcies": 0,
         }
-        for strategy_name in STRATEGY_NAMES
+        for strategy_name in strategy_names
     }
 
 
@@ -116,6 +229,43 @@ def record_bankrolls(
             statistics[strategy_name][
                 "bankruptcies"
             ] += 1
+
+
+def record_top_two_credits(
+    rankings,
+    seat_names,
+    statistics,
+):
+    ranking_index = 0
+
+    while ranking_index < len(rankings):
+        bankroll = rankings[ranking_index][1]
+        tie_end = ranking_index
+
+        while (
+            tie_end < len(rankings)
+            and rankings[tie_end][1] == bankroll
+        ):
+            tie_end += 1
+
+        tie_size = tie_end - ranking_index
+        top_two_slots = max(
+            0,
+            min(tie_end, 2) - ranking_index,
+        )
+        shared_credit = top_two_slots / tie_size
+
+        for tied_index in range(
+            ranking_index,
+            tie_end,
+        ):
+            seat_index = rankings[tied_index][0]
+            strategy_name = seat_names[seat_index]
+            statistics[strategy_name][
+                "top_two_credit"
+            ] += shared_credit
+
+        ranking_index = tie_end
 
 
 def record_finishing_positions(
@@ -180,10 +330,7 @@ def record_head_to_head(
         "neural"
     ]
 
-    for strategy_name in STRATEGY_NAMES:
-        if strategy_name == "neural":
-            continue
-
+    for strategy_name in head_to_head:
         opponent_bankroll = bankroll_by_strategy[
             strategy_name
         ]
@@ -255,6 +402,12 @@ def run_one_tournament(
         statistics,
     )
 
+    record_top_two_credits(
+        rankings,
+        seat_names,
+        statistics,
+    )
+
     record_finishing_positions(
         rankings,
         seat_names,
@@ -280,6 +433,8 @@ def evaluate_network(
     hit_soft_17=True,
     max_hands=4,
     seed=123,
+    table_kind="standard",
+    league_directory="models/league",
 ):
     if (
         isinstance(number_of_tournaments, bool)
@@ -297,15 +452,37 @@ def evaluate_network(
             "number_of_tournaments must be positive"
         )
 
-    competitors = create_competitors(
-        saved_network_path
-    )
+    if table_kind == "standard":
+        competitors = create_competitors(
+            saved_network_path
+        )
+        strategy_names = STRATEGY_NAMES
+        title = "Betting strategy evaluation"
+    elif table_kind == "risk_taker":
+        competitors = create_risk_taker_competitors(
+            saved_network_path
+        )
+        strategy_names = RISK_TAKER_STRATEGY_NAMES
+        title = "Early risk-taker table evaluation"
+    elif table_kind == "league":
+        competitors = create_league_competitors(
+            saved_network_path,
+            league_directory,
+        )
+        strategy_names = tuple(
+            name for name, _ in competitors
+        )
+        title = "Archived champion league evaluation"
+    else:
+        raise ValueError(
+            "table_kind must be standard, risk_taker, or league"
+        )
 
-    statistics = create_statistics()
+    statistics = create_statistics(strategy_names)
 
     head_to_head = {
         strategy_name: 0.0
-        for strategy_name in STRATEGY_NAMES
+        for strategy_name in strategy_names
         if strategy_name != "neural"
     }
 
@@ -353,6 +530,8 @@ def evaluate_network(
         ),
         "statistics": statistics,
         "head_to_head": head_to_head,
+        "strategy_names": strategy_names,
+        "title": title,
     }
 
 
@@ -364,8 +543,12 @@ def print_results(results):
     statistics = results["statistics"]
 
     print()
-    print("Betting strategy evaluation")
-    print("---------------------------")
+    title = results.get(
+        "title",
+        "Betting strategy evaluation",
+    )
+    print(title)
+    print("-" * len(title))
     print(
         f"Tournaments: "
         f"{number_of_tournaments:,}"
@@ -373,8 +556,9 @@ def print_results(results):
     print()
 
     header = (
-        f"{'Strategy':<14}"
+        f"{'Strategy':<28}"
         f"{'Win rate':>12}"
+        f"{'Top two':>12}"
         f"{'Avg position':>16}"
         f"{'Avg bankroll':>18}"
         f"{'Bankruptcy':>14}"
@@ -383,13 +567,22 @@ def print_results(results):
     print(header)
     print("-" * len(header))
 
-    for strategy_name in STRATEGY_NAMES:
+    for strategy_name in results.get(
+        "strategy_names",
+        STRATEGY_NAMES,
+    ):
         strategy_statistics = statistics[
             strategy_name
         ]
 
         win_rate = (
             strategy_statistics["win_credit"]
+            / number_of_tournaments
+            * 100
+        )
+
+        top_two_rate = (
+            strategy_statistics["top_two_credit"]
             / number_of_tournaments
             * 100
         )
@@ -411,8 +604,9 @@ def print_results(results):
         )
 
         print(
-            f"{strategy_name:<14}"
+            f"{strategy_name:<28}"
             f"{win_rate:>11.2f}%"
+            f"{top_two_rate:>11.2f}%"
             f"{average_position:>16.2f}"
             f"{average_bankroll:>18,.2f}"
             f"{bankruptcy_rate:>13.2f}%"
@@ -483,6 +677,40 @@ def main():
     )
 
     print_results(results)
+
+    risk_results = evaluate_network(
+        saved_network_path=saved_network_path,
+        number_of_tournaments=(
+            number_of_tournaments
+        ),
+        starting_bankroll=10_000,
+        rounds_per_tournament=12,
+        decks=6,
+        minimum_bet=100,
+        hit_soft_17=True,
+        max_hands=4,
+        seed=321,
+        table_kind="risk_taker",
+    )
+
+    print_results(risk_results)
+
+    league_directory = Path("models/league")
+    if any(league_directory.glob("champion_*.npz")):
+        league_results = evaluate_network(
+            saved_network_path=saved_network_path,
+            number_of_tournaments=number_of_tournaments,
+            starting_bankroll=10_000,
+            rounds_per_tournament=12,
+            decks=6,
+            minimum_bet=100,
+            hit_soft_17=True,
+            max_hands=4,
+            seed=777,
+            table_kind="league",
+            league_directory=league_directory,
+        )
+        print_results(league_results)
 
     results = evaluate_against_six_minimum(
         saved_network_path=saved_network_path,

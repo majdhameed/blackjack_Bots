@@ -1,474 +1,68 @@
+from agents.basic_strategy_agent import BasicStrategyAgent
+from agents.chasing_agent import ChasingAgent
+from agents.controlled_lead_martingale_agent import (
+    ControlledLeadMartingaleAgent,
+)
+from agents.early_lead_agent import EarlyLeadAgent
+from agents.lead_protection_agent import (
+    LeadProtectionAgent,
+)
 from agents.neural_betting_agent import (
     NeuralBettingAgent,
 )
 from ml.betting_encoder import (
     encode_betting_observation,
 )
-from ml.betting_network import BettingNetwork
+from ml.betting_network import (
+    BETTING_ACTION_NAMES,
+    BettingNetwork,
+)
 from tournament.observation import (
     BettingObservation,
 )
 
+from ml.betting_probes import (
+    create_betting_probes,
+)
 
-TOTAL_ROUNDS = 12
-MINIMUM_BET = 100
 
 
-def make_observation(
-    round_number,
-    bankrolls,
-    player_index,
-    betting_position,
-    current_bets,
-    bets_placed,
-    true_count=0.0,
-):
-    return BettingObservation(
-        round_number=round_number,
-        total_rounds=TOTAL_ROUNDS,
-        rounds_remaining=(
-            TOTAL_ROUNDS - round_number
-        ),
-        player_index=player_index,
-        round_player_index=player_index,
-        betting_position=betting_position,
-        minimum_bet=MINIMUM_BET,
-        bankroll=bankrolls[player_index],
-        bankrolls=tuple(bankrolls),
-        active_players=(
-            True,
-            True,
-            True,
-            True,
-            True,
-            True,
-            True,
-        ),
-        current_bets=tuple(current_bets),
-        bets_placed=tuple(bets_placed),
-        betting_order=(
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-        ),
-        card_value_counts=(
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-        ),
-        cards_seen=0,
-        running_count=0,
-        true_count=true_count,
-        cards_remaining=312,
-        decks_remaining=6.0,
-        shoe_penetration=0.0,
+
+def rank_and_gap_to_second(observation):
+    active_bankrolls = [
+        bankroll
+        for bankroll, active in zip(
+            observation.bankrolls,
+            observation.active_players,
+        )
+        if active
+    ]
+    rank = 1 + sum(
+        bankroll > observation.bankroll
+        for bankroll in active_bankrolls
     )
-
-
-def create_scenarios():
-    tied_bankrolls = [
-        10_000,
-        10_000,
-        10_000,
-        10_000,
-        10_000,
-        10_000,
-        10_000,
-    ]
-
-    leading_bankrolls = [
-        10_000,
-        10_000,
-        10_000,
-        10_000,
-        10_000,
-        10_000,
-        12_000,
-    ]
-
-    behind_bankrolls = [
-        11_000,
-        10_500,
-        10_000,
-        10_000,
-        10_000,
-        10_000,
-        8_000,
-    ]
-
-    slightly_behind_bankrolls = [
-        10_500,
-        10_000,
-        10_000,
-        10_000,
-        10_000,
-        10_000,
-        10_000,
-    ]
-
-    return [
-        {
-            "name": "Round 1, tied, betting first",
-            "observation": make_observation(
-                round_number=1,
-                bankrolls=tied_bankrolls,
-                player_index=0,
-                betting_position=0,
-                current_bets=[
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                ],
-                bets_placed=[
-                    False,
-                    False,
-                    False,
-                    False,
-                    False,
-                    False,
-                    False,
-                ],
-            ),
-        },
-        {
-            "name": "Round 1, tied, betting last",
-            "observation": make_observation(
-                round_number=1,
-                bankrolls=tied_bankrolls,
-                player_index=6,
-                betting_position=6,
-                current_bets=[
-                    100,
-                    100,
-                    100,
-                    100,
-                    100,
-                    100,
-                    0,
-                ],
-                bets_placed=[
-                    True,
-                    True,
-                    True,
-                    True,
-                    True,
-                    True,
-                    False,
-                ],
-            ),
-        },
-        {
-            "name": "Round 6, leading, betting first",
-            "observation": make_observation(
-                round_number=6,
-                bankrolls=[
-                    12_000,
-                    10_000,
-                    10_000,
-                    10_000,
-                    10_000,
-                    10_000,
-                    10_000,
-                ],
-                player_index=0,
-                betting_position=0,
-                current_bets=[
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                ],
-                bets_placed=[
-                    False,
-                    False,
-                    False,
-                    False,
-                    False,
-                    False,
-                    False,
-                ],
-            ),
-        },
-        {
-            "name": "Round 6, behind, betting last",
-            "observation": make_observation(
-                round_number=6,
-                bankrolls=behind_bankrolls,
-                player_index=6,
-                betting_position=6,
-                current_bets=[
-                    100,
-                    100,
-                    100,
-                    100,
-                    100,
-                    100,
-                    0,
-                ],
-                bets_placed=[
-                    True,
-                    True,
-                    True,
-                    True,
-                    True,
-                    True,
-                    False,
-                ],
-            ),
-        },
-        {
-            "name": "Round 11, leading, betting last",
-            "observation": make_observation(
-                round_number=11,
-                bankrolls=leading_bankrolls,
-                player_index=6,
-                betting_position=6,
-                current_bets=[
-                    100,
-                    100,
-                    100,
-                    100,
-                    100,
-                    100,
-                    0,
-                ],
-                bets_placed=[
-                    True,
-                    True,
-                    True,
-                    True,
-                    True,
-                    True,
-                    False,
-                ],
-            ),
-        },
-        {
-            "name": "Round 11, far behind, betting last",
-            "observation": make_observation(
-                round_number=11,
-                bankrolls=behind_bankrolls,
-                player_index=6,
-                betting_position=6,
-                current_bets=[
-                    100,
-                    100,
-                    100,
-                    100,
-                    100,
-                    100,
-                    0,
-                ],
-                bets_placed=[
-                    True,
-                    True,
-                    True,
-                    True,
-                    True,
-                    True,
-                    False,
-                ],
-            ),
-        },
-        {
-            "name": "Final round, tied, betting first",
-            "observation": make_observation(
-                round_number=12,
-                bankrolls=tied_bankrolls,
-                player_index=0,
-                betting_position=0,
-                current_bets=[
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                ],
-                bets_placed=[
-                    False,
-                    False,
-                    False,
-                    False,
-                    False,
-                    False,
-                    False,
-                ],
-            ),
-        },
-        {
-            "name": "Final round, tied, betting last",
-            "observation": make_observation(
-                round_number=12,
-                bankrolls=tied_bankrolls,
-                player_index=6,
-                betting_position=6,
-                current_bets=[
-                    100,
-                    100,
-                    100,
-                    100,
-                    100,
-                    100,
-                    0,
-                ],
-                bets_placed=[
-                    True,
-                    True,
-                    True,
-                    True,
-                    True,
-                    True,
-                    False,
-                ],
-            ),
-        },
-        {
-            "name": (
-                "Final round, slightly behind, "
-                "betting last"
-            ),
-            "observation": make_observation(
-                round_number=12,
-                bankrolls=(
-                    slightly_behind_bankrolls
-                ),
-                player_index=6,
-                betting_position=6,
-                current_bets=[
-                    100,
-                    100,
-                    100,
-                    100,
-                    100,
-                    100,
-                    0,
-                ],
-                bets_placed=[
-                    True,
-                    True,
-                    True,
-                    True,
-                    True,
-                    True,
-                    False,
-                ],
-            ),
-        },
-        {
-            "name": (
-                "Final round, far behind, "
-                "betting last"
-            ),
-            "observation": make_observation(
-                round_number=12,
-                bankrolls=behind_bankrolls,
-                player_index=6,
-                betting_position=6,
-                current_bets=[
-                    100,
-                    100,
-                    100,
-                    100,
-                    100,
-                    100,
-                    0,
-                ],
-                bets_placed=[
-                    True,
-                    True,
-                    True,
-                    True,
-                    True,
-                    True,
-                    False,
-                ],
-            ),
-        },
-        {
-            "name": (
-                "Final round, behind, opponents "
-                "bet large"
-            ),
-            "observation": make_observation(
-                round_number=12,
-                bankrolls=behind_bankrolls,
-                player_index=6,
-                betting_position=6,
-                current_bets=[
-                    2_000,
-                    1_500,
-                    1_000,
-                    500,
-                    100,
-                    100,
-                    0,
-                ],
-                bets_placed=[
-                    True,
-                    True,
-                    True,
-                    True,
-                    True,
-                    True,
-                    False,
-                ],
-            ),
-        },
-        {
-            "name": "Final round, leading, betting last",
-            "observation": make_observation(
-                round_number=12,
-                bankrolls=leading_bankrolls,
-                player_index=6,
-                betting_position=6,
-                current_bets=[
-                    100,
-                    100,
-                    100,
-                    100,
-                    100,
-                    100,
-                    0,
-                ],
-                bets_placed=[
-                    True,
-                    True,
-                    True,
-                    True,
-                    True,
-                    True,
-                    False,
-                ],
-            ),
-        },
-    ]
+    second_bankroll = sorted(
+        active_bankrolls,
+        reverse=True,
+    )[1]
+    gap_fraction = max(
+        0,
+        second_bankroll - observation.bankroll,
+    ) / observation.bankroll
+    return rank, gap_fraction
 
 
 def inspect_strategy(network_path):
     network = BettingNetwork.load(network_path)
     agent = NeuralBettingAgent(network)
+    minimum_agent = BasicStrategyAgent()
+    chaser = ChasingAgent()
+    controlled_lead = ControlledLeadMartingaleAgent()
+    half_lead = EarlyLeadAgent(0.25, 0.50)
+    all_in_lead = EarlyLeadAgent(0.10, 1.00)
+    protector = LeadProtectionAgent()
 
-    scenarios = create_scenarios()
+    scenarios = create_betting_probes()
 
     print()
     print("Learned neural betting strategy")
@@ -476,37 +70,82 @@ def inspect_strategy(network_path):
 
     header = (
         f"{'Scenario':<48}"
+        f"{'Rank':>6}"
+        f"{'Gap 2nd':>10}"
         f"{'Output':>10}"
-        f"{'Bet':>12}"
-        f"{'Bankroll %':>14}"
+        f"{'Action':>22}"
+        f"{'Neural':>12}"
+        f"{'Minimum':>12}"
+        f"{'Chaser':>12}"
+        f"{'Controlled':>12}"
+        f"{'Half lead':>12}"
+        f"{'All-in lead':>12}"
+        f"{'Protector':>12}"
     )
 
     print(header)
     print("-" * len(header))
 
+    minimum_matches = 0
+
     for scenario in scenarios:
         observation = scenario["observation"]
+        rank, gap_fraction = rank_and_gap_to_second(
+            observation
+        )
 
         features = encode_betting_observation(
             observation
         )
 
         raw_fraction = network.forward(features)
+        action_name = BETTING_ACTION_NAMES[
+            network.preferred_action(features)
+        ]
 
         final_bet = agent.choose_bet(
             observation
         )
 
-        final_fraction = (
-            final_bet / observation.bankroll
+        minimum_bet = minimum_agent.choose_bet(
+            observation
         )
+        chaser_bet = chaser.choose_bet(observation)
+        controlled_bet = controlled_lead.choose_bet(
+            observation
+        )
+        half_lead_bet = half_lead.choose_bet(
+            observation
+        )
+        all_in_lead_bet = all_in_lead.choose_bet(
+            observation
+        )
+        protector_bet = protector.choose_bet(
+            observation
+        )
+        if final_bet == minimum_bet:
+            minimum_matches += 1
 
         print(
             f"{scenario['name']:<48}"
+            f"{rank:>6}"
+            f"{gap_fraction:>9.1%}"
             f"{raw_fraction:>10.4f}"
+            f"{action_name:>22}"
             f"{final_bet:>12,}"
-            f"{final_fraction:>13.2%}"
+            f"{minimum_bet:>12,}"
+            f"{chaser_bet:>12,}"
+            f"{controlled_bet:>12,}"
+            f"{half_lead_bet:>12,}"
+            f"{all_in_lead_bet:>12,}"
+            f"{protector_bet:>12,}"
         )
+
+    print()
+    print(
+        "Neural matches the minimum bettor in "
+        f"{minimum_matches} of {len(scenarios)} scenarios."
+    )
 
 
 def main():

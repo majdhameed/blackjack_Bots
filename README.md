@@ -30,6 +30,20 @@ The tournament simulator currently compares seven strategies:
 
 Every included bot inherits the same basic-strategy card decisions. This isolates bet sizing as the main difference between competitors.
 
+All non-all-in wagers use table-minimum chip increments. With a `$100` minimum, legal strategy outputs are `$100`, `$200`, `$300`, and so on; a short remaining bankroll may still be wagered all-in.
+
+The neural-betting trainer also uses state-aware and deliberately unpredictable opponents:
+
+| Strategy | Behavior |
+| --- | --- |
+| Chaser | Bets the minimum early, then increases risk when outside the top two |
+| Early lead | Includes measured 25%, half-bankroll, and opening-all-in variants that attack briefly, then protect a safe lead |
+| Lead protector | Builds a small early lead with 20% wagers, then covers visible threats and chases late when behind |
+| Controlled lead Martingale | Starts at 5%, doubles after losses up to 20%, and drops to minimum after gaining a $100 lead |
+| Human behavior | Reacts to wins and losses, presses streaks, copies visible wagers, protects leads, and occasionally bets impulsively |
+| Count aware | Raises its wager only when the Hi-Lo true count is favorable |
+| Unpredictable | Changes among minimum, random-percentage, catch-up, copied, and impulsive wagers each round |
+
 Strategies are randomly assigned to seats for every tournament to reduce seat-order bias. A tournament ends when it reaches the requested round limit or no more than one funded player remains.
 
 ## Project structure
@@ -99,6 +113,40 @@ python simulate.py
 
 This script is the older single-player simulation path. Its agent calls still need to be aligned fully with the newer observation-based bot interface, so the tournament simulator is currently the primary automated entry point.
 
+### Train the neural betting bot
+
+```powershell
+python train_betting.py
+```
+
+The current overnight configuration uses 200 generations, 30 self-play tournaments per network, 30 mixed-opponent tournaments per network, 300 staged benchmark tournaments, and the top 10 benchmark candidates. Runtime depends on the machine; independently verified new best networks are checkpointed throughout the run.
+
+Each generation combines neural self-play with a league mixture: 40% realistic human tables, 25% proven handcrafted strategies, 20% archived neural champions, 10% randomized adversarial strategies, and 5% six-minimum control tables. Before the first champion qualifies, the league portion falls back to the proven-strategy table. Qualifying champions are retained in `models/league` and become opponents in later generations, so a new policy must keep competing with strategies found earlier instead of exploiting only the current population.
+
+Training scenarios are 45% normal tied starts, 30% mid-stage tables with five to eight rounds remaining and the neural player exactly third or fourth, 20% late-stage tables with two or three rounds remaining and the neural player exactly third, and 5% extreme robustness cases. Mid-stage deficits to second grow from roughly 5-10% to 5-20% over the curriculum; late-stage deficits grow from roughly 3-5% to 3-8%. This emphasizes learning how to create an advantage from a real equal start while retaining recovery practice.
+
+The main fitness directly reflects tournament advancement: first place earns `1.05`, second place earns `1.0`, and lower positions earn zero. Ties share the fitness belonging to the positions they occupy. Training tables also award small, capped shaping credit for improving rank, closing the gap to second, creating a top-two safety margin, and establishing a lead. That shaping fades linearly and is completely disabled by generation 40, so the end of training optimizes actual advancement. Fixed benchmarks always remain strict and award no shaping credit.
+
+The ten best training candidates from every generation are each evaluated over 300 staged tournaments while rotating among fixed adaptive, disciplined, human-like, and early risk-taker lineups. Every candidate is evaluated from the same random-number states, reducing advantages from easier seats, scenarios, human impulses, or shoes. The risk-taker lineup contains two half-bankroll lead builders and one opening-all-in player. The disciplined lineup includes a minimum-bet control so a weak policy cannot look strong merely because aggressive opponents eliminate one another. The benchmark is split into normal, mid-stage, and late-stage tables, weighted 40%, 35%, and 25%.
+
+Each candidate also plays a separate disciplined full-tournament holdout and a six-minimum control holdout. The robust selection score is 45% staged benchmark, 45% disciplined full-tournament holdout, and 10% six-minimum holdout. This prevents one lucky staged result or unusually easy minimum table from dominating selection. Candidates and saved generations with measurable late-stage advancement are preferred over those with none. The final output reports every component.
+
+Whenever a generation appears to establish a new overall best robust score, the challenger and saved incumbent are re-evaluated on the same independent 1,000-tournament staged batch plus their holdouts. The challenger is atomically checkpointed to `models/best_betting_network.npz` only if it still wins that comparison. An interrupted overnight run therefore retains the strongest verified generation completed so far.
+
+The neural encoder supplies explicit tournament features for current rank, distance from the leader, distance from second place, current top-two status, largest visible wager, final-round status, previous wager, previous bankroll change, previous result, and consecutive losses. This history makes controlled loss progressions representable by the feed-forward network.
+
+The neural policy has a separate action head that chooses among legacy fractional betting, minimum, 5% baseline, controlled loss recovery, taking second, taking first, covering visible bets, half-bankroll, all-in, and lead protection. New populations seed all of these actions as well as distinct wager fractions. Every generation also injects one fresh network for each action, preventing the population from permanently collapsing into minimum bettors while still allowing evolution to learn when to switch actions from the encoded tournament state.
+
+The saved network can be checked against the fixed seven-strategy benchmark with:
+
+```powershell
+python evaluate_betting_network.py
+```
+
+The evaluation table includes a minimum-bet control alongside the neural and adaptive strategies, making it clear whether the learned policy actually outperforms minimum betting under the same cards-and-opponents environment.
+
+Evaluation also runs a separate early risk-taker table containing two half-bankroll lead builders and one opening-all-in leader. When archived champions exist, it then runs a champion-league table so the final policy's performance against earlier winners is explicit, followed by the six-minimum control table.
+
 ## Running tests
 
 ```powershell
@@ -112,8 +160,7 @@ The tests cover cards, hand totals, basic strategy, bankroll operations, legal a
 - Results are printed to the terminal rather than saved as structured data.
 - Simulations do not currently accept a fixed random seed from the command line.
 - The single-player simulator predates the observation-based agent API.
-- The card counter is implemented and tested but is not yet connected to a betting bot.
-- The `ml` package is only a placeholder for future observation encoding.
+- Training and evaluation still use nondeterministic card shuffles.
 - There is no graphical interface, report export, or chart generation yet.
 
 ## Roadmap

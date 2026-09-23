@@ -3,7 +3,10 @@ import random
 
 import numpy as np
 
-from ml.betting_network import BettingNetwork
+from ml.betting_network import (
+    BETTING_ACTION_COUNT,
+    BettingNetwork,
+)
 
 class Population:
     def __init__(self, population_size, elite_count, mutation_rate, mutation_strength, seed=None):
@@ -100,17 +103,23 @@ class Population:
 
         self.networks = []
 
-        for _ in range(population_size):
-            network_seed = int(
-                self.random_generator.integers(
-                    0,
-                    2**32
+        self.seeded_bet_fractions = (
+            0.01,
+            0.02,
+            0.05,
+            0.10,
+            0.20,
+            0.35,
+            0.50,
+            0.90,
+        )
+
+        for network_index in range(population_size):
+            self.networks.append(
+                self._create_strategy_seeded_network(
+                    network_index
                 )
             )
-
-            network = BettingNetwork(seed=network_seed)
-
-            self.networks.append(network)
 
         self.fitness_scores = np.zeros(
             population_size,
@@ -118,6 +127,30 @@ class Population:
         )
 
         self.generation_number = 0
+
+    def _create_strategy_seeded_network(self, seed_index):
+        network_seed = int(
+            self.random_generator.integers(
+                0,
+                2**32,
+            )
+        )
+        network = BettingNetwork(seed=network_seed)
+
+        target_fraction = self.seeded_bet_fractions[
+            seed_index % len(self.seeded_bet_fractions)
+        ]
+        network.biases3[0] = (
+            math.log(
+                target_fraction
+                / (1.0 - target_fraction)
+            )
+            + self.random_generator.uniform(-0.10, 0.10)
+        )
+        network.seed_preferred_action(
+            seed_index % BETTING_ACTION_COUNT
+        )
+        return network
 
     def reset_fitness(self):
         self.fitness_scores = np.zeros(self.population_size,dtype=float)
@@ -153,7 +186,17 @@ class Population:
             cloned_network = self.networks[elite_index].clone()
             next_networks.append(cloned_network)
 
-        while len(next_networks) < self.population_size:
+        # Keep a small stream of strategy-seeded immigrants so the population
+        # cannot permanently collapse into a single passive betting family.
+        immigrant_count = min(
+            BETTING_ACTION_COUNT,
+            self.population_size - len(next_networks),
+        )
+        offspring_target = (
+            self.population_size - immigrant_count
+        )
+
+        while len(next_networks) < offspring_target:
             parent_index = int(self.random_generator.choice(elite_indices))
 
             child = self.networks[parent_index].clone()
@@ -169,6 +212,15 @@ class Population:
             )
 
             next_networks.append(child)
+
+        for immigrant_index in range(immigrant_count):
+            next_networks.append(
+                self._create_strategy_seeded_network(
+                    self.generation_number
+                    * BETTING_ACTION_COUNT
+                    + immigrant_index
+                )
+            )
 
 
         self.networks = next_networks

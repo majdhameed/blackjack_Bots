@@ -96,7 +96,7 @@ def make_observation():
     )
 
 
-def test_encoder_returns_46_float_features():
+def test_encoder_returns_57_float_features():
     observation = make_observation()
 
     features = encode_betting_observation(
@@ -104,7 +104,26 @@ def test_encoder_returns_46_float_features():
     )
 
     assert isinstance(features, tuple)
-    assert len(features) == 46
+    assert len(features) == 57
+
+
+def test_previous_round_features_are_explicit():
+    observation = replace(
+        make_observation(),
+        previous_bet=500,
+        previous_bankroll_change=-500,
+        previous_result=-1.0,
+        consecutive_losses=2,
+        has_previous_round=True,
+    )
+
+    features = encode_betting_observation(observation)
+
+    assert features[52] == pytest.approx(500 / 14_000)
+    assert features[53] == pytest.approx(-500 / 14_000)
+    assert features[54] == -1.0
+    assert features[55] == 0.5
+    assert features[56] == 1.0
 
     assert all(
         isinstance(value, float)
@@ -273,6 +292,53 @@ def test_shoe_penetration_is_included():
     assert features[45] == pytest.approx(
         0.20
     )
+
+
+def test_tournament_situation_features_are_explicit():
+    features = encode_betting_observation(
+        make_observation()
+    )
+
+    money_scale = 14_000
+
+    assert features[46] == pytest.approx(5 / 5)
+    assert features[47] == pytest.approx(
+        6_000 / money_scale
+    )
+    assert features[48] == pytest.approx(
+        4_000 / money_scale
+    )
+    assert features[49] == 0.0
+    assert features[50] == pytest.approx(
+        500 / money_scale
+    )
+    assert features[51] == 0.0
+
+
+def test_final_round_and_top_two_are_explicit():
+    observation = replace(
+        make_observation(),
+        round_number=12,
+        rounds_remaining=0,
+        bankroll=13_000,
+        bankrolls=(
+            13_000,
+            9_000,
+            8_000,
+            12_000,
+            11_000,
+            7_000,
+            14_000,
+        ),
+    )
+
+    features = encode_betting_observation(
+        observation
+    )
+
+    assert features[46] == pytest.approx(1 / 5)
+    assert features[49] == 1.0
+    assert features[51] == 1.0
 
 
 def test_zero_cards_seen_does_not_divide_by_zero():

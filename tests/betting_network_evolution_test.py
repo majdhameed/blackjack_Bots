@@ -11,6 +11,8 @@ PARAMETER_NAMES = (
     "biases2",
     "weights3",
     "biases3",
+    "action_weights",
+    "action_biases",
 )
 
 

@@ -11,6 +11,8 @@ PARAMETER_NAMES = (
     "biases2",
     "weights3",
     "biases3",
+    "action_weights",
+    "action_biases",
 )
 
 
@@ -61,7 +63,7 @@ def test_loaded_network_produces_same_output(
     features = np.linspace(
         0.0,
         1.0,
-        46,
+        57,
     )
 
     expected_output = original.forward(features)
@@ -110,7 +112,7 @@ def test_load_rejects_missing_parameters(
 
     np.savez(
         file_path,
-        weights1=np.zeros((32, 46)),
+        weights1=np.zeros((32, 57)),
     )
 
     with pytest.raises(ValueError):
@@ -120,12 +122,14 @@ def test_load_rejects_missing_parameters(
 @pytest.mark.parametrize(
     "parameter_name,wrong_shape",
     [
-        ("weights1", (31, 46)),
+        ("weights1", (31, 57)),
         ("biases1", (31,)),
         ("weights2", (15, 32)),
         ("biases2", (15,)),
         ("weights3", (2, 16)),
         ("biases3", (2,)),
+        ("action_weights", (9, 16)),
+        ("action_biases", (9,)),
     ],
 )
 def test_load_rejects_wrong_parameter_shapes(
@@ -169,3 +173,33 @@ def test_load_rejects_nonfinite_parameters(
 
     with pytest.raises(ValueError):
         BettingNetwork.load(file_path)
+
+
+def test_load_upgrades_legacy_46_feature_network(
+    tmp_path,
+):
+    network = BettingNetwork(seed=123)
+    parameters = network.get_parameters()
+    legacy_weights = parameters["weights1"][:, :46]
+    parameters["weights1"] = legacy_weights
+    parameters.pop("action_weights")
+    parameters.pop("action_biases")
+
+    file_path = tmp_path / "legacy_network.npz"
+    np.savez(file_path, **parameters)
+
+    loaded = BettingNetwork.load(file_path)
+
+    assert loaded.weights1.shape == (32, 57)
+
+    np.testing.assert_array_equal(
+        loaded.weights1[:, :46],
+        legacy_weights,
+    )
+
+    np.testing.assert_array_equal(
+        loaded.weights1[:, 46:],
+        np.zeros((32, 11)),
+    )
+
+    assert loaded.preferred_action((0.0,) * 57) == 0

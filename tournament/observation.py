@@ -26,6 +26,11 @@ class BettingObservation:
     cards_remaining: int
     decks_remaining: float
     shoe_penetration: float
+    previous_bet: float = 0.0
+    previous_bankroll_change: float = 0.0
+    previous_result: float = 0.0
+    consecutive_losses: int = 0
+    has_previous_round: bool = False
 
 # State available while a player is selecting a blackjack action.
 @dataclass(frozen=True)

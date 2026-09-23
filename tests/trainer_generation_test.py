@@ -246,3 +246,187 @@ def test_train_generation_best_network_is_snapshot():
         result["best_network"]
         is not winning_network
     )
+
+
+def test_benchmark_selects_best_of_top_training_candidates():
+    trainer = make_trainer()
+    scores = np.arange(14, dtype=float)
+
+    trainer.population.networks[13].biases3[0] = 0.1
+    trainer.population.networks[12].biases3[0] = 0.9
+    trainer.population.networks[11].biases3[0] = 0.2
+
+    def fake_evaluate_generation(
+        tournaments_per_network,
+    ):
+        trainer.population.fitness_scores = scores.copy()
+        return scores.copy()
+
+    trainer.evaluate_generation = (
+        fake_evaluate_generation
+    )
+    trainer.evaluate_network_against_fixed_benchmark = (
+        lambda network, tournament_count, stage=None, **kwargs: float(
+            network.biases3[0]
+        )
+    )
+
+    result = trainer.train_generation(
+        tournaments_per_network=1,
+        benchmark_tournaments=10,
+        benchmark_candidate_count=3,
+    )
+
+    assert result["best_network_index"] == 12
+    assert result["best_fitness"] == 12
+    assert result["benchmark_fitness"] == pytest.approx(
+        0.9
+    )
+
+
+def test_benchmark_prefers_candidate_with_late_advancement():
+    trainer = make_trainer()
+    scores = np.arange(14, dtype=float)
+    trainer.population.networks[13].biases3[0] = 0.9
+    trainer.population.networks[12].biases3[0] = 0.5
+
+    def fake_evaluate_generation(tournaments_per_network):
+        trainer.population.fitness_scores = scores.copy()
+        return scores.copy()
+
+    def fake_benchmark(
+        network,
+        tournament_count,
+        stage=None,
+        **kwargs,
+    ):
+        marker = float(network.biases3[0])
+        if stage == "late":
+            return 0.1 if marker < 0.7 else 0.0
+        return marker
+
+    trainer.evaluate_generation = fake_evaluate_generation
+    trainer.evaluate_network_against_fixed_benchmark = (
+        fake_benchmark
+    )
+
+    result = trainer.train_generation(
+        tournaments_per_network=1,
+        benchmark_tournaments=10,
+        benchmark_candidate_count=2,
+    )
+
+    assert result["best_network_index"] == 12
+    assert result["benchmark_late_fitness"] == pytest.approx(
+        0.1
+    )
+
+
+def test_benchmark_selection_includes_full_tournament_holdout():
+    trainer = make_trainer()
+    scores = np.arange(14, dtype=float)
+    trainer.population.networks[13].biases3[0] = 0.6
+    trainer.population.networks[12].biases3[0] = 0.5
+
+    def fake_evaluate_generation(tournaments_per_network):
+        trainer.population.fitness_scores = scores.copy()
+        return scores.copy()
+
+    def fake_benchmark(
+        network,
+        tournament_count,
+        stage=None,
+        full_tournament=False,
+        **kwargs,
+    ):
+        marker = float(network.biases3[0])
+        if full_tournament and marker > 0.55:
+            return 0.0
+        return marker
+
+    trainer.evaluate_generation = fake_evaluate_generation
+    trainer.evaluate_network_against_fixed_benchmark = (
+        fake_benchmark
+    )
+
+    result = trainer.train_generation(
+        tournaments_per_network=1,
+        benchmark_tournaments=10,
+        benchmark_candidate_count=2,
+    )
+
+    assert result["best_network_index"] == 12
+    assert result["benchmark_holdout_fitness"] == pytest.approx(
+        0.5
+    )
+
+
+def test_benchmark_candidates_receive_common_random_numbers():
+    trainer = make_trainer()
+    scores = np.arange(14, dtype=float)
+    calls_by_marker = {}
+
+    trainer.population.networks[13].biases3[0] = 0.6
+    trainer.population.networks[12].biases3[0] = 0.5
+
+    def fake_evaluate_generation(tournaments_per_network):
+        trainer.population.fitness_scores = scores.copy()
+        return scores.copy()
+
+    def random_benchmark(network, tournament_count, **kwargs):
+        marker = float(network.biases3[0])
+        calls_by_marker.setdefault(marker, []).append(
+            float(trainer.population.random_generator.random())
+        )
+        return 0.5
+
+    trainer.evaluate_generation = fake_evaluate_generation
+    trainer.evaluate_network_against_fixed_benchmark = random_benchmark
+
+    trainer.train_generation(
+        tournaments_per_network=1,
+        benchmark_tournaments=10,
+        benchmark_candidate_count=2,
+    )
+
+    assert calls_by_marker[0.6] == calls_by_marker[0.5]
+
+
+def test_broad_benchmark_winner_is_added_to_champion_league():
+    trainer = make_trainer()
+    scores = np.arange(14, dtype=float)
+
+    def fake_evaluate_generation(tournaments_per_network):
+        trainer.population.fitness_scores = scores.copy()
+        return scores.copy()
+
+    trainer.evaluate_generation = fake_evaluate_generation
+    trainer.evaluate_network_against_fixed_benchmark = (
+        lambda network, tournament_count, **kwargs: 0.5
+    )
+
+    result = trainer.train_generation(
+        tournaments_per_network=1,
+        benchmark_tournaments=10,
+        benchmark_candidate_count=1,
+    )
+
+    assert result["league_promoted"] is True
+    assert result["league_size"] == 1
+
+
+def test_league_training_table_contains_archived_champion():
+    trainer = make_trainer()
+    trainer.champion_league.append(
+        trainer.population.networks[0].clone()
+    )
+
+    competitors = trainer.create_training_baseline_competitors(
+        trainer.population.networks[1],
+        table_kind="league",
+    )
+
+    names = [name for name, _ in competitors]
+    assert len(competitors) == 7
+    assert "neural" in names
+    assert "league_champion_1" in names

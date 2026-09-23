@@ -53,6 +53,14 @@ class Tournament:
         self.card_counter = CardCounter()
         self.decks = decks
         self.reshuffle_threshold = int(decks * 52 * .2)
+        player_count = len(players)
+        self.previous_bets = [0.0] * player_count
+        self.previous_bankroll_changes = [0.0] * player_count
+        self.previous_results = [0.0] * player_count
+        self.consecutive_losses = [0] * player_count
+        self.has_previous_round = [False] * player_count
+        self.current_round_starting_bankrolls = None
+        self.current_round_bets = [0.0] * player_count
 
 
 
@@ -119,6 +127,15 @@ class Tournament:
             for player_index in active_indices
         ]
 
+        self.current_round_starting_bankrolls = [
+            player.bankroll
+            for player in self.players
+        ]
+        self.current_round_bets = [
+            0.0
+            for _ in self.players
+        ]
+
         for player in round_players:
             player.reset_round()
 
@@ -167,6 +184,15 @@ class Tournament:
                 raise TypeError("Bet must be a number")
             if not math.isfinite(bet):
                 raise ValueError("Bet must be finite")
+
+            permanent_player_index = (
+                self.active_player_indices[
+                    round_player_index
+                ]
+            )
+            self.current_round_bets[
+                permanent_player_index
+            ] = bet
 
             self.current_table_round.place_bet(round_player_index, bet)
 
@@ -265,6 +291,53 @@ class Tournament:
             table_round.play_dealer()
 
             outcomes = table_round.settle_round()
+
+        if self.current_round_starting_bankrolls is None:
+            raise RuntimeError(
+                "Round starting bankrolls were not recorded"
+            )
+
+        for permanent_player_index in (
+            self.active_player_indices
+        ):
+            bankroll_change = (
+                self.players[
+                    permanent_player_index
+                ].bankroll
+                - self.current_round_starting_bankrolls[
+                    permanent_player_index
+                ]
+            )
+            if bankroll_change > 0:
+                previous_result = 1.0
+                self.consecutive_losses[
+                    permanent_player_index
+                ] = 0
+            elif bankroll_change < 0:
+                previous_result = -1.0
+                self.consecutive_losses[
+                    permanent_player_index
+                ] += 1
+            else:
+                previous_result = 0.0
+                self.consecutive_losses[
+                    permanent_player_index
+                ] = 0
+
+            self.previous_bets[
+                permanent_player_index
+            ] = self.current_round_bets[
+                permanent_player_index
+            ]
+            self.previous_bankroll_changes[
+                permanent_player_index
+            ] = bankroll_change
+            self.previous_results[
+                permanent_player_index
+            ] = previous_result
+            self.has_previous_round[
+                permanent_player_index
+            ] = True
 
         self.round_history.append(table_round)
 
@@ -375,6 +448,23 @@ class Tournament:
             current_bets=current_bets,
             bets_placed=bets_placed,
             betting_order=permanent_betting_order,
+            previous_bet=self.previous_bets[
+                permanent_player_index
+            ],
+            previous_bankroll_change=(
+                self.previous_bankroll_changes[
+                    permanent_player_index
+                ]
+            ),
+            previous_result=self.previous_results[
+                permanent_player_index
+            ],
+            consecutive_losses=self.consecutive_losses[
+                permanent_player_index
+            ],
+            has_previous_round=self.has_previous_round[
+                permanent_player_index
+            ],
             **count_information
         )
 
@@ -512,4 +602,3 @@ class Tournament:
                 shoe_penetration
             ),
         }
-            

@@ -128,6 +128,26 @@ def test_all_in_bot_can_bet_fractional_bankroll():
     assert tournament.players[0].bankroll == 0
 
 
+def test_betting_observation_includes_previous_round_state():
+    tournament = make_tournament(number_of_rounds=2)
+
+    tournament.play_one_round()
+    tournament.start_next_round()
+    round_player_index = (
+        tournament.current_table_round.betting_order[0]
+    )
+    observation = tournament.build_betting_observation(
+        round_player_index
+    )
+
+    assert observation.has_previous_round is True
+    assert observation.previous_bet == 100
+    assert observation.previous_bankroll_change == (
+        observation.bankroll - 10_000
+    )
+    assert observation.previous_result in (-1.0, 0.0, 1.0)
+
+
 def test_begin_player_actions_deals_cards():
     tournament = make_tournament()
 

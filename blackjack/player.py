@@ -40,6 +40,14 @@ class Player:
                 "Bet must meet the minimum or equal the remaining bankroll"
             )
 
+        if (
+            bet != self.bankroll
+            and bet % minimum_bet != 0
+        ):
+            raise ValueError(
+                "Bet must use table-minimum chip increments"
+            )
+
         self.bankroll -= bet
         self.hands.append(PlayerHand(bet))
         self.active_hand_index = 0

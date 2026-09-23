@@ -3,6 +3,23 @@ from pathlib import Path
 
 import numpy as np
 
+from ml.betting_encoder import BETTING_FEATURE_COUNT
+
+
+BETTING_ACTION_NAMES = (
+    "legacy_fraction",
+    "minimum",
+    "five_percent",
+    "controlled_recovery",
+    "take_second",
+    "take_first",
+    "cover_visible_bets",
+    "half_bankroll",
+    "all_in",
+    "protect_lead",
+)
+BETTING_ACTION_COUNT = len(BETTING_ACTION_NAMES)
+
 
 class BettingNetwork:
     def __init__(self, seed=None):
@@ -22,7 +39,7 @@ class BettingNetwork:
             self.random_generator.normal(
                 loc=0.0,
                 scale=0.1,
-                size=(32, 46),
+                size=(32, BETTING_FEATURE_COUNT),
             )
         )
 
@@ -46,11 +63,28 @@ class BettingNetwork:
             )
         )
 
-        self.biases3 = np.array([-8.0])
+        self.biases3 = np.zeros(1)
 
-    def forward(self, features):
-        if len(features) != 46:
-            raise ValueError("features must be of lenght 46")
+        # A second head chooses among strategically meaningful betting
+        # actions.  The original fractional output is retained both as one
+        # available action and for loading networks created by older runs.
+        self.action_weights = (
+            self.random_generator.normal(
+                loc=0.0,
+                scale=0.1,
+                size=(BETTING_ACTION_COUNT, 16),
+            )
+        )
+        self.action_biases = np.zeros(
+            BETTING_ACTION_COUNT
+        )
+
+    def _hidden_values(self, features):
+        if len(features) != BETTING_FEATURE_COUNT:
+            raise ValueError(
+                "features must have a length of "
+                f"{BETTING_FEATURE_COUNT}"
+            )
 
         np_features = np.asarray(features, dtype=float)
 
@@ -60,12 +94,13 @@ class BettingNetwork:
             )
 
         hidden1 = self.weights1 @ np_features + self.biases1
-
         hidden1 = np.maximum(0, hidden1)
 
         hidden2 = self.weights2 @ hidden1 + self.biases2
+        return np.maximum(0, hidden2)
 
-        hidden2 = np.maximum(0, hidden2)
+    def forward(self, features):
+        hidden2 = self._hidden_values(features)
 
         output = self.weights3 @ hidden2 + self.biases3
 
@@ -74,6 +109,31 @@ class BettingNetwork:
         output = 1 / (1 + np.exp(-output))
 
         return float(output.item())
+
+    def action_scores(self, features):
+        """Return one score for each high-level betting action."""
+        hidden2 = self._hidden_values(features)
+        scores = (
+            self.action_weights @ hidden2
+            + self.action_biases
+        )
+        return np.asarray(scores, dtype=float)
+
+    def preferred_action(self, features):
+        scores = self.action_scores(features)
+        return int(np.argmax(scores))
+
+    def seed_preferred_action(self, action_index):
+        if (
+            isinstance(action_index, bool)
+            or not isinstance(action_index, int)
+        ):
+            raise TypeError("action_index must be an integer")
+        if not 0 <= action_index < BETTING_ACTION_COUNT:
+            raise ValueError("action_index is outside the action set")
+
+        self.action_biases.fill(-0.25)
+        self.action_biases[action_index] = 0.75
 
     def clone(self):
 
@@ -93,6 +153,12 @@ class BettingNetwork:
         
         cloned_net.weights3 = np.copy(self.weights3)
         cloned_net.biases3 = np.copy(self.biases3)
+        cloned_net.action_weights = np.copy(
+            self.action_weights
+        )
+        cloned_net.action_biases = np.copy(
+            self.action_biases
+        )
         
         cloned_net.random_generator = np.random.default_rng()
         cloned_net.random_generator.bit_generator.state = self.random_generator.bit_generator.state
@@ -114,6 +180,8 @@ class BettingNetwork:
             "biases2",
             "weights3",
             "biases3",
+            "action_weights",
+            "action_biases",
         )
 
         for parameter_name in parameter_names:
@@ -143,6 +211,8 @@ class BettingNetwork:
             "biases2": self.biases2.copy(),
             "weights3": self.weights3.copy(),
             "biases3": self.biases3.copy(),
+            "action_weights": self.action_weights.copy(),
+            "action_biases": self.action_biases.copy(),
         }
     
     def save(self, file_path):
@@ -153,10 +223,15 @@ class BettingNetwork:
             exist_ok=True,
         )
 
+        temporary_path = file_path.with_name(
+            f".{file_path.name}.tmp.npz"
+        )
+
         np.savez(
-            file_path,
+            temporary_path,
             **self.get_parameters(),
         )
+        temporary_path.replace(file_path)
 
 
     @classmethod
@@ -169,20 +244,42 @@ class BettingNetwork:
             )
 
         expected_shapes = {
-            "weights1": (32, 46),
+            "weights1": (
+                32,
+                BETTING_FEATURE_COUNT,
+            ),
             "biases1": (32,),
             "weights2": (16, 32),
             "biases2": (16,),
             "weights3": (1, 16),
             "biases3": (1,),
+            "action_weights": (
+                BETTING_ACTION_COUNT,
+                16,
+            ),
+            "action_biases": (BETTING_ACTION_COUNT,),
+        }
+
+        legacy_optional_parameters = {
+            "action_weights",
+            "action_biases",
         }
 
         with np.load(
             file_path,
             allow_pickle=False,
         ) as data:
+            has_action_weights = "action_weights" in data.files
+            has_action_biases = "action_biases" in data.files
+            if has_action_weights != has_action_biases:
+                raise ValueError(
+                    "Network file must contain both action_weights "
+                    "and action_biases"
+                )
             missing_parameters = (
-                set(expected_shapes) - set(data.files)
+                set(expected_shapes)
+                - legacy_optional_parameters
+                - set(data.files)
             )
 
             if missing_parameters:
@@ -196,10 +293,30 @@ class BettingNetwork:
             for parameter_name, expected_shape in (
                 expected_shapes.items()
             ):
+                if parameter_name not in data.files:
+                    continue
                 parameter = np.asarray(
                     data[parameter_name],
                     dtype=float,
                 )
+
+                if (
+                    parameter_name == "weights1"
+                    and parameter.ndim == 2
+                    and parameter.shape[0] == 32
+                    and parameter.shape[1] in {46, 52}
+                ):
+                    parameter = np.pad(
+                        parameter,
+                        (
+                            (0, 0),
+                            (
+                                0,
+                                BETTING_FEATURE_COUNT
+                                - parameter.shape[1],
+                            ),
+                        ),
+                    )
 
                 if parameter.shape != expected_shape:
                     raise ValueError(
@@ -219,6 +336,18 @@ class BettingNetwork:
                 ] = parameter.copy()
 
         network = cls()
+
+        # Old one-output checkpoints keep their exact original behavior by
+        # selecting the legacy fraction action until evolution changes it.
+        if "action_weights" not in loaded_parameters:
+            network.action_weights = np.zeros(
+                (BETTING_ACTION_COUNT, 16),
+            )
+            network.action_biases = np.full(
+                BETTING_ACTION_COUNT,
+                -10.0,
+            )
+            network.action_biases[0] = 10.0
 
         network.weights1 = loaded_parameters[
             "weights1"
@@ -243,5 +372,13 @@ class BettingNetwork:
         network.biases3 = loaded_parameters[
             "biases3"
         ]
+
+        if "action_weights" in loaded_parameters:
+            network.action_weights = loaded_parameters[
+                "action_weights"
+            ]
+            network.action_biases = loaded_parameters[
+                "action_biases"
+            ]
 
         return network

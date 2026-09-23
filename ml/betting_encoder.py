@@ -1,6 +1,9 @@
 # Reserved for converting BettingObservation values into model-ready numeric features. 
 from tournament.observation import BettingObservation
 
+
+BETTING_FEATURE_COUNT = 57
+
 def encode_betting_observation(observation: BettingObservation) -> tuple[float, ...]:
     if not isinstance(observation, BettingObservation):
         raise TypeError("Observation must be a betting observation")
@@ -72,10 +75,72 @@ def encode_betting_observation(observation: BettingObservation) -> tuple[float, 
 
     features.append(observation.shoe_penetration)
 
-    if len(features) != 46:
+    active_bankrolls = [
+        bankroll
+        for player_index, bankroll in enumerate(
+            observation.bankrolls
+        )
+        if observation.active_players[player_index]
+    ]
+
+    players_ahead = sum(
+        bankroll > observation.bankroll
+        for bankroll in active_bankrolls
+    )
+
+    rank_scale = max(len(active_bankrolls) - 1, 1)
+    leader_bankroll = max(active_bankrolls)
+
+    sorted_bankrolls = sorted(
+        active_bankrolls,
+        reverse=True,
+    )
+
+    advancement_cutoff = (
+        sorted_bankrolls[1]
+        if len(sorted_bankrolls) > 1
+        else sorted_bankrolls[0]
+    )
+
+    features.extend(
+        (
+            players_ahead / rank_scale,
+            (
+                leader_bankroll
+                - observation.bankroll
+            ) / money_scale,
+            (
+                advancement_cutoff
+                - observation.bankroll
+            ) / money_scale,
+            1.0 if players_ahead <= 1 else 0.0,
+            max(observation.current_bets) / money_scale,
+            1.0 if observation.rounds_remaining == 0 else 0.0,
+        )
+    )
+
+    features.extend(
+        (
+            observation.previous_bet / money_scale,
+            max(
+                -1.0,
+                min(
+                    1.0,
+                    observation.previous_bankroll_change
+                    / money_scale,
+                ),
+            ),
+            max(
+                -1.0,
+                min(1.0, observation.previous_result),
+            ),
+            min(observation.consecutive_losses, 4) / 4,
+            1.0 if observation.has_previous_round else 0.0,
+        )
+    )
+
+    if len(features) != BETTING_FEATURE_COUNT:
         raise ValueError(
-            f"Expected 46 features, got {len(features)}"
+            f"Expected {BETTING_FEATURE_COUNT} features, got {len(features)}"
         )
     return tuple(float(value) for value in features)
-
-    

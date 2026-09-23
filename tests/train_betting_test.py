@@ -120,6 +120,7 @@ class FakeTrainer:
     def train_generation(
         self,
         tournaments_per_network,
+        **kwargs,
     ):
         self.received_tournament_counts.append(
             tournaments_per_network
@@ -288,7 +289,7 @@ def test_run_training_saves_overall_best_network(
 
     assert (
         results[0]["best_network"].saved_paths
-        == []
+        == [output_path]
     )
 
     assert (
@@ -332,6 +333,117 @@ def test_run_training_returns_history(
     assert summary["history"][2][
         "generation"
     ] == 2
+
+
+def test_saved_generation_requires_late_stage_success(
+    tmp_path,
+):
+    common = {
+        "best_network_index": 0,
+        "best_fitness": 10.0,
+        "average_fitness": 5.0,
+        "benchmark_fitness": 0.5,
+        "benchmark_normal_fitness": 0.5,
+        "benchmark_mid_fitness": 0.5,
+        "benchmark_holdout_fitness": 0.5,
+        "benchmark_minimum_holdout_fitness": 0.5,
+    }
+    results = [
+        {
+            **common,
+            "generation": 0,
+            "best_network": FakeNetwork("no-late"),
+            "benchmark_late_fitness": 0.0,
+            "benchmark_selection_fitness": 0.9,
+        },
+        {
+            **common,
+            "generation": 1,
+            "best_network": FakeNetwork("late-success"),
+            "benchmark_late_fitness": 0.1,
+            "benchmark_selection_fitness": 0.5,
+        },
+    ]
+    trainer = FakeTrainer(results)
+
+    summary = train_betting.run_training(
+        trainer=trainer,
+        generations=2,
+        tournaments_per_network=1,
+        benchmark_tournaments_per_generation=10,
+        output_path=tmp_path / "winner.npz",
+        print_fn=lambda message: None,
+    )
+
+    assert summary["best_generation"] == 1
+    assert summary["best_benchmark_late_fitness"] == 0.1
+
+
+def test_independent_verification_rejects_lucky_checkpoint(
+    tmp_path,
+):
+    def generation_result(generation, score):
+        return {
+            "generation": generation,
+            "best_network_index": generation,
+            "best_fitness": 10.0,
+            "average_fitness": 5.0,
+            "best_network": FakeNetwork(str(generation)),
+            "benchmark_fitness": score,
+            "benchmark_normal_fitness": score,
+            "benchmark_mid_fitness": score,
+            "benchmark_late_fitness": score,
+            "benchmark_holdout_fitness": score,
+            "benchmark_minimum_holdout_fitness": score,
+            "benchmark_selection_fitness": score,
+        }
+
+    class VerifyingTrainer(FakeTrainer):
+        def compare_checkpoint_networks(
+            self,
+            challenger,
+            incumbent,
+            tournament_count,
+        ):
+            challenger_score = (
+                0.40 if challenger.identifier == "0" else 0.30
+            )
+
+            def metrics(score):
+                return {
+                    "benchmark_fitness": score,
+                    "benchmark_normal_fitness": score,
+                    "benchmark_mid_fitness": score,
+                    "benchmark_late_fitness": score,
+                    "benchmark_holdout_fitness": score,
+                    "benchmark_minimum_holdout_fitness": score,
+                    "benchmark_selection_fitness": score,
+                }
+
+            incumbent_metrics = (
+                None if incumbent is None else metrics(0.40)
+            )
+            return metrics(challenger_score), incumbent_metrics
+
+    trainer = VerifyingTrainer(
+        [
+            generation_result(0, 0.50),
+            generation_result(1, 0.90),
+        ]
+    )
+
+    summary = train_betting.run_training(
+        trainer=trainer,
+        generations=2,
+        tournaments_per_network=1,
+        output_path=tmp_path / "winner.npz",
+        print_fn=lambda message: None,
+        benchmark_tournaments_per_generation=10,
+        checkpoint_verification_tournaments=100,
+    )
+
+    assert summary["best_generation"] == 0
+    assert summary["best_benchmark_selection_fitness"] == 0.40
 
 
 # --------------------------------------------------

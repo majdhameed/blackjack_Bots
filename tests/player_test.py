@@ -50,6 +50,13 @@ def test_cannot_bet_more_than_bankroll():
         player.place_bet(1_001, minimum_bet=100)
 
 
+def test_bet_must_use_table_minimum_chip_increment():
+    player = Player(10_000)
+
+    with pytest.raises(ValueError):
+        player.place_bet(155, minimum_bet=100)
+
+
 def test_cannot_place_second_bet():
     player = Player(10_000)
     player.place_bet(1_000, minimum_bet=100)

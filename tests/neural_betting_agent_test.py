@@ -14,6 +14,16 @@ class FakeNetwork:
         return self.output
 
 
+class FakeActionNetwork(FakeNetwork):
+    def __init__(self, action_index, output=0.01):
+        super().__init__(output)
+        self.action_index = action_index
+
+    def preferred_action(self, features):
+        self.received_features = features
+        return self.action_index
+
+
 def make_observation(
     bankroll=1_000,
     minimum_bet=10,
@@ -90,7 +100,19 @@ def test_network_output_controls_bet_percentage():
 
     assert bet == 250
     assert network.received_features is not None
-    assert len(network.received_features) == 46
+    assert len(network.received_features) == 57
+
+
+def test_bet_is_floored_to_table_chip_increment():
+    network = FakeNetwork(0.0155)
+    agent = NeuralBettingAgent(network)
+
+    observation = make_observation(
+        bankroll=10_000,
+        minimum_bet=100,
+    )
+
+    assert agent.choose_bet(observation) == 100
 
 
 def test_bet_cannot_be_below_minimum():
@@ -146,3 +168,48 @@ def test_choose_bet_rejects_invalid_observation():
 def test_constructor_rejects_object_without_forward():
     with pytest.raises(TypeError):
         NeuralBettingAgent(object())
+
+
+@pytest.mark.parametrize(
+    "action_index,expected_bet",
+    [
+        (1, 10),
+        (2, 50),
+        (4, 10),
+        (5, 10),
+        (7, 500),
+        (8, 1_000),
+    ],
+)
+def test_network_can_select_meaningful_betting_actions(
+    action_index,
+    expected_bet,
+):
+    agent = NeuralBettingAgent(
+        FakeActionNetwork(action_index)
+    )
+
+    assert agent.choose_bet(make_observation()) == expected_bet
+
+
+def test_take_second_action_bets_the_bankroll_gap():
+    observation = make_observation(bankroll=800)
+    agent = NeuralBettingAgent(FakeActionNetwork(4))
+
+    assert agent.choose_bet(observation) == 210
+
+
+def test_controlled_recovery_action_doubles_previous_loss():
+    base = make_observation(bankroll=1_000)
+    observation = BettingObservation(
+        **{
+            **base.__dict__,
+            "previous_bet": 50,
+            "previous_result": -1.0,
+            "consecutive_losses": 1,
+            "has_previous_round": True,
+        }
+    )
+    agent = NeuralBettingAgent(FakeActionNetwork(3))
+
+    assert agent.choose_bet(observation) == 100
