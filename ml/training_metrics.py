@@ -1,8 +1,19 @@
 import csv
 from pathlib import Path
-import shutil
 
 from ml.betting_network import BETTING_ACTION_NAMES
+
+INTEGER_FIELDS = {
+    "generation",
+    "league_size",
+    "total_probe_decisions",
+    "unique_policy_count",
+}
+
+BOOLEAN_FIELDS = {
+    "checkpoint_saved",
+    "league_promoted",
+}
 
 def build_generation_record(generation_result, verified_score=None, checkpoint_saved=False):
     strategy_diversity = generation_result["strategy_diversity"]
@@ -68,3 +79,37 @@ def save_training_history(output_path, records):
 
 
 
+def load_training_history(input_path):
+    input_path = Path(input_path)
+    records = []
+    with input_path.open(
+        mode="r",
+        encoding="utf-8",
+        newline="",
+    ) as file:
+        reader = csv.DictReader(file)
+
+        for row in reader:
+            record = {}
+            for header, raw_value in row.items():
+                raw_value = raw_value.strip()
+
+                if raw_value == "":
+                    value = None
+                elif header in INTEGER_FIELDS:
+                    value = int(raw_value)
+                elif header in BOOLEAN_FIELDS:
+                    if raw_value not in {"True", "False"}:
+                        raise ValueError(
+                            f"Invalid boolean value for {header}: "
+                            f"{raw_value!r}"
+                        )
+                    value = raw_value == "True"
+                else:
+                    value = float(raw_value)
+
+                record[header] = value
+
+            records.append(record)
+
+    return records

@@ -1,6 +1,27 @@
+from datetime import datetime
+from pathlib import Path
+
 from ml.population import Population
 from ml.trainer import Trainer
+from ml.training_metrics import (
+    save_training_history,
+    build_generation_record,
+)
 
+
+def create_run_artifact_paths(base_directory="runs", timestamp=None):
+    if timestamp is None:
+        timestamp = datetime.now()
+
+    run_id = timestamp.strftime("%Y%m%d_%H%M%S")
+    run_directory = Path(base_directory) / run_id
+    run_directory.mkdir(parents=True, exist_ok=True)
+
+    return {
+        "run_directory": run_directory,
+        "model_path": run_directory / "best_betting_network.npz",
+        "metrics_path": run_directory / "metrics.csv",
+    }
 
 def create_population(population_size, elite_count, mutation_rate, mutation_strength, seed=None):
 
@@ -41,6 +62,7 @@ def run_training(
     benchmark_tournaments_per_generation=0,
     benchmark_candidate_count=1,
     checkpoint_verification_tournaments=0,
+    metrics_output_path=None,
 ):
 
     if type(generations) is not int:
@@ -116,9 +138,11 @@ def run_training(
     best_benchmark_minimum_holdout_fitness = None
     best_benchmark_selection_fitness = None
     best_generation = None
+    metrics_history = []
 
 
     for _ in range(generations):
+        verified_score = None
         if (
             baseline_tournaments_per_network > 0
             or benchmark_tournaments_per_generation > 0
@@ -231,7 +255,10 @@ def run_training(
             best_comparison_key is None
             or comparison_key > best_comparison_key
         )
+
+    
         metrics_for_checkpoint = result
+
 
         if (
             should_save
@@ -251,6 +278,7 @@ def run_training(
                         checkpoint_verification_tournaments,
                     )
                 )
+
                 challenger_key = (
                     challenger_metrics[
                         "benchmark_late_fitness"
@@ -290,6 +318,9 @@ def run_training(
                     print_fn(
                         "  checkpoint rejected by independent verification"
                     )
+                verified_score = challenger_metrics["benchmark_selection_fitness"]
+            
+                
 
         if should_save:
             best_comparison_key = comparison_key
@@ -323,6 +354,13 @@ def run_training(
                 f"{output_path} "
                 f"(generation {best_generation})"
             )
+       
+
+        if metrics_output_path:
+            record = build_generation_record(result, verified_score, should_save, )
+            metrics_history.append(record)
+            save_training_history(metrics_output_path, metrics_history)
+
 
     return{
         "best_generation": best_generation,
@@ -350,11 +388,14 @@ def run_training(
         ),
         "best_network": best_network,
         "output_path": output_path,
-        "history": history
+        "history": history,
+        "metrics_history": metrics_history
     }
 
 
 def main():
+    artifact_paths = create_run_artifact_paths()
+
     population = create_population(
         population_size=70,
         elite_count=7,
@@ -376,15 +417,14 @@ def main():
     )
     summary = run_training(
         trainer=trainer,
-        generations=200,
+        generations=10,
         tournaments_per_network=30,
-        baseline_tournaments_per_network=30,
+        baseline_tournaments_per_network=50,
         benchmark_tournaments_per_generation=300,
         benchmark_candidate_count=10,
         checkpoint_verification_tournaments=1_000,
-        output_path=(
-            "models/best_betting_network.npz"
-        ),
+        output_path=artifact_paths["model_path"],
+        metrics_output_path=artifact_paths["metrics_path"],
     )
 
     print()

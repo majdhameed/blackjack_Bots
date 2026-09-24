@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -36,6 +37,29 @@ def test_required_training_functions_exist():
             None,
         )
     )
+
+
+def test_create_run_artifact_paths_groups_matching_files(
+    tmp_path,
+):
+    timestamp = datetime(2026, 9, 23, 21, 7, 5)
+
+    paths = train_betting.create_run_artifact_paths(
+        base_directory=tmp_path / "runs",
+        timestamp=timestamp,
+    )
+
+    expected_directory = (
+        tmp_path / "runs" / "20260923_210705"
+    )
+    assert paths["run_directory"] == expected_directory
+    assert paths["model_path"] == (
+        expected_directory / "best_betting_network.npz"
+    )
+    assert paths["metrics_path"] == (
+        expected_directory / "metrics.csv"
+    )
+    assert expected_directory.is_dir()
 
 
 # --------------------------------------------------
@@ -444,6 +468,87 @@ def test_independent_verification_rejects_lucky_checkpoint(
 
     assert summary["best_generation"] == 0
     assert summary["best_benchmark_selection_fitness"] == 0.40
+
+
+def test_run_training_persists_metrics_after_every_generation(
+    tmp_path,
+    monkeypatch,
+):
+    build_calls = []
+    save_calls = []
+
+    def fake_build_generation_record(
+        generation_result,
+        verified_score=None,
+        checkpoint_saved=False,
+    ):
+        record = {
+            "generation": generation_result["generation"],
+            "verified_score": verified_score,
+            "checkpoint_saved": checkpoint_saved,
+        }
+        build_calls.append(record.copy())
+        return record
+
+    def fake_save_training_history(output_path, records):
+        save_calls.append(
+            (
+                Path(output_path),
+                [record.copy() for record in records],
+            )
+        )
+
+    monkeypatch.setattr(
+        train_betting,
+        "build_generation_record",
+        fake_build_generation_record,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        train_betting,
+        "save_training_history",
+        fake_save_training_history,
+        raising=False,
+    )
+
+    metrics_output_path = tmp_path / "run" / "metrics.csv"
+    trainer = FakeTrainer(make_generation_results())
+
+    summary = train_betting.run_training(
+        trainer=trainer,
+        generations=3,
+        tournaments_per_network=5,
+        output_path=tmp_path / "winner.npz",
+        metrics_output_path=metrics_output_path,
+        print_fn=lambda message: None,
+    )
+
+    assert build_calls == [
+        {
+            "generation": 0,
+            "verified_score": None,
+            "checkpoint_saved": True,
+        },
+        {
+            "generation": 1,
+            "verified_score": None,
+            "checkpoint_saved": True,
+        },
+        {
+            "generation": 2,
+            "verified_score": None,
+            "checkpoint_saved": False,
+        },
+    ]
+    assert [
+        len(records)
+        for _, records in save_calls
+    ] == [1, 2, 3]
+    assert all(
+        output_path == metrics_output_path
+        for output_path, _ in save_calls
+    )
+    assert summary["metrics_history"] == save_calls[-1][1]
 
 
 # --------------------------------------------------

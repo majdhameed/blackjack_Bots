@@ -226,3 +226,63 @@ def test_save_training_history_atomically_replaces_complete_csv(
         preserved_rows = list(csv.DictReader(metrics_file))
 
     assert preserved_rows == replaced_rows
+
+
+def test_load_training_history_restores_record_value_types(
+    tmp_path,
+):
+    training_metrics = importlib.import_module(
+        "ml.training_metrics"
+    )
+    load_training_history = getattr(
+        training_metrics,
+        "load_training_history",
+        None,
+    )
+    assert callable(load_training_history), (
+        "ml.training_metrics must expose a callable "
+        "load_training_history operation"
+    )
+
+    records = [
+        {
+            "generation": 0,
+            "training_best": 10.5,
+            "verified_score": None,
+            "checkpoint_saved": False,
+            "league_promoted": True,
+            "league_size": 3,
+            "total_probe_decisions": 1680,
+            "action_entropy": 0.75,
+            "unique_policy_count": 41,
+            "unique_policy_rate": 41 / 70,
+            "action_minimum": 0.25,
+        },
+        {
+            "generation": 1,
+            "training_best": 12.25,
+            "verified_score": 0.433,
+            "checkpoint_saved": True,
+            "league_promoted": False,
+            "league_size": 4,
+            "total_probe_decisions": 1680,
+            "action_entropy": 0.68,
+            "unique_policy_count": 35,
+            "unique_policy_rate": 0.5,
+            "action_minimum": 0.20,
+        },
+    ]
+    metrics_path = tmp_path / "run" / "metrics.csv"
+
+    training_metrics.save_training_history(
+        metrics_path,
+        records,
+    )
+    loaded_records = load_training_history(metrics_path)
+
+    assert loaded_records == records
+    assert type(loaded_records[0]["generation"]) is int
+    assert type(loaded_records[0]["training_best"]) is float
+    assert loaded_records[0]["verified_score"] is None
+    assert type(loaded_records[0]["checkpoint_saved"]) is bool
+    assert type(loaded_records[0]["league_size"]) is int
