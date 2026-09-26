@@ -417,7 +417,7 @@ def main():
     )
     summary = run_training(
         trainer=trainer,
-        generations=10,
+        generations=3,
         tournaments_per_network=30,
         baseline_tournaments_per_network=50,
         benchmark_tournaments_per_generation=300,

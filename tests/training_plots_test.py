@@ -4,6 +4,9 @@ from pathlib import Path
 
 import pytest
 
+from ml.betting_network import BETTING_ACTION_NAMES
+from ml.training_metrics import save_training_history
+
 
 def test_create_fitness_plot_writes_population_fitness_png(
     tmp_path,
@@ -186,3 +189,131 @@ def test_create_diversity_plot_writes_policy_diversity_png(
         b"\x89PNG\r\n\x1a\n"
     )
     assert records == original_records
+
+
+def test_create_action_plot_writes_stacked_action_percentages_png(
+    tmp_path,
+):
+    training_plots = importlib.import_module(
+        "ml.training_plots"
+    )
+    create_action_plot = getattr(
+        training_plots,
+        "create_action_plot",
+        None,
+    )
+    assert callable(create_action_plot), (
+        "ml.training_plots must expose a callable "
+        "create_action_plot operation"
+    )
+
+    action_mixes = [
+        (0.70, 0.20, 0.10),
+        (0.45, 0.35, 0.20),
+        (0.25, 0.40, 0.35),
+    ]
+    records = []
+    for generation, action_mix in enumerate(action_mixes):
+        record = {
+            "generation": generation,
+            **{
+                f"action_{action_name}": 0.0
+                for action_name in BETTING_ACTION_NAMES
+            },
+        }
+        record["action_minimum"] = action_mix[0]
+        record["action_five_percent"] = action_mix[1]
+        record["action_controlled_recovery"] = action_mix[2]
+        records.append(record)
+
+    original_records = copy.deepcopy(records)
+    output_path = tmp_path / "nested" / "actions.png"
+
+    returned_path = create_action_plot(
+        records,
+        output_path,
+    )
+
+    assert returned_path == Path(output_path)
+    assert output_path.is_file()
+    assert output_path.stat().st_size > 1_000
+    assert output_path.read_bytes()[:8] == (
+        b"\x89PNG\r\n\x1a\n"
+    )
+    assert records == original_records
+
+
+def test_generate_training_plots_loads_csv_and_writes_all_graphs(
+    tmp_path,
+):
+    training_plots = importlib.import_module(
+        "ml.training_plots"
+    )
+    generate_training_plots = getattr(
+        training_plots,
+        "generate_training_plots",
+        None,
+    )
+    assert callable(generate_training_plots), (
+        "ml.training_plots must expose a callable "
+        "generate_training_plots operation"
+    )
+
+    records = []
+    for generation in range(3):
+        record = {
+            "generation": generation,
+            "training_best": 20.0 + generation,
+            "training_mean": 12.0 + generation,
+            "training_worst": 5.0 + generation,
+            "training_std": 3.0,
+            "benchmark_score": 0.30 + generation * 0.02,
+            "normal_score": 0.40 + generation * 0.02,
+            "mid_score": 0.30 + generation * 0.02,
+            "late_score": 0.20 + generation * 0.02,
+            "full_tournament_score": 0.40 + generation * 0.02,
+            "minimum_control_score": 0.45,
+            "robust_score": 0.35 + generation * 0.02,
+            "verified_score": (
+                0.37 if generation == 1 else None
+            ),
+            "checkpoint_saved": generation == 1,
+            "league_promoted": False,
+            "league_size": 3,
+            "total_probe_decisions": 1680,
+            "action_entropy": 0.80 - generation * 0.05,
+            "unique_policy_count": 40 - generation,
+            "unique_policy_rate": 0.60 - generation * 0.05,
+            **{
+                f"action_{action_name}": 0.0
+                for action_name in BETTING_ACTION_NAMES
+            },
+        }
+        record["action_minimum"] = 0.70 - generation * 0.10
+        record["action_five_percent"] = 0.20 + generation * 0.05
+        record["action_controlled_recovery"] = (
+            1.0
+            - record["action_minimum"]
+            - record["action_five_percent"]
+        )
+        records.append(record)
+
+    run_directory = tmp_path / "runs" / "test-run"
+    metrics_path = run_directory / "metrics.csv"
+    save_training_history(metrics_path, records)
+
+    output_paths = generate_training_plots(metrics_path)
+
+    expected_paths = {
+        "fitness": run_directory / "fitness.png",
+        "evaluation": run_directory / "evaluation.png",
+        "diversity": run_directory / "diversity.png",
+        "actions": run_directory / "actions.png",
+    }
+    assert output_paths == expected_paths
+    for output_path in output_paths.values():
+        assert output_path.is_file()
+        assert output_path.stat().st_size > 1_000
+        assert output_path.read_bytes()[:8] == (
+            b"\x89PNG\r\n\x1a\n"
+        )
